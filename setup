@@ -17,6 +17,7 @@ links() {
   printf '%s\t%s\n' "$REPO/home/settings.json" "$CLAUDE/settings.json"
   printf '%s\t%s\n' "$REPO/home/commands" "$CLAUDE/commands"
   for s in "$REPO"/home/skills/*/; do
+    [ -d "$s" ] || continue
     s=${s%/}
     printf '%s\t%s\n' "$s" "$CLAUDE/skills/$(basename "$s")"
   done
@@ -73,19 +74,22 @@ check_links() {
 }
 
 check_tools() {
-  local t major
+  local t v
   echo "Tools"
   for t in git gh jq rg gitleaks claude pnpm node; do
     if command -v "$t" >/dev/null; then good "$t"; else problem "$t not found" "brew bundle --file $REPO/Brewfile (see README)"; fi
   done
   if command -v node >/dev/null; then
-    major=$(node -v | sed -E 's/^v([0-9]+).*/\1/')
-    [ "$major" = 24 ] || warn "default node is v$major, the setup expects 24: nvm alias default 24"
+    if ! v=$(node -v); then
+      problem "node -v failed" "reinstall Node 24 with nvm"
+    elif [ "${v%%.*}" != v24 ]; then
+      warn "default node is $v, the setup expects 24: nvm alias default 24"
+    fi
   fi
 }
 
 check_settings() {
-  local f="$REPO/home/settings.json" bad cmd first
+  local f="$REPO/home/settings.json" bad cmd word first missing
   echo "Settings"
   command -v jq >/dev/null || return 0 # check_tools already reported jq missing
   if ! jq empty "$f" 2>/dev/null; then
@@ -101,12 +105,20 @@ check_settings() {
   fi
   while IFS= read -r cmd; do
     [ -n "$cmd" ] || continue
-    first=${cmd%% *}
-    first=${first//\$HOME/$HOME}
-    if [ -x "$first" ] || command -v "$first" >/dev/null; then
+    # Split the way a shell would (xargs honours quotes and runs nothing), expand $HOME,
+    # then check the program and every absolute path it's given.
+    first="" missing=""
+    while IFS= read -r word; do
+      word=${word//\$HOME/$HOME}
+      [ -n "$first" ] || first=$word
+      case "$word" in /*) [ -e "$word" ] || missing=$word ;; esac
+    done < <(printf '%s\n' "$cmd" | xargs -n1 printf '%s\n')
+    if [ -n "$missing" ]; then
+      problem "hook file not found: $missing" "check home/settings.json hooks and the links above"
+    elif [ -x "$first" ] || command -v "$first" >/dev/null; then
       good "hook runs $(short "$first")"
     else
-      problem "hook command not found: $first" "check home/settings.json hooks and ./setup doctor links"
+      problem "hook program not found: $first" "check home/settings.json hooks"
     fi
   done < <(jq -r '.hooks // {} | .. | .command? // empty' "$f")
 }
@@ -132,8 +144,13 @@ cmd_adopt() {
     [ "$dst" = "$target" ] || continue
     [ -L "$dst" ] && die "$(short "$dst") is already a link"
     [ -e "$dst" ] || die "$(short "$dst") doesn't exist"
-    rm -rf "$src"
-    mv "$dst" "$src"
+    # Keep the repo copy until the move has worked.
+    mv "$src" "$src.adopt-old"
+    if ! mv "$dst" "$src"; then
+      mv "$src.adopt-old" "$src"
+      die "couldn't move $(short "$dst") into the repo, nothing changed"
+    fi
+    rm -rf "$src.adopt-old"
     ln -s "$src" "$dst"
     echo "adopted $(short "$dst"). Review with git -C $REPO diff, then commit and push."
     return 0
@@ -142,28 +159,27 @@ cmd_adopt() {
 }
 
 cmd_uninstall() {
-  local first="" d src dst rel
-  for d in "$BACKUPS"/*/; do
-    [ -d "$d" ] && { first=${d%/}; break; }
-  done
+  local d src dst rel from
   while IFS=$TAB read -r src dst; do
     if ! is_ours "$src" "$dst"; then
-      [ -e "$dst" ] && echo "left $(short "$dst"), it isn't a setup link"
+      if [ -e "$dst" ]; then echo "left $(short "$dst"), it isn't a setup link"; fi
       continue
     fi
     rm "$dst"
     rel=${dst#"$HOME"/}
-    if [ -n "$first" ] && { [ -e "$first/$rel" ] || [ -L "$first/$rel" ]; }; then
-      mv "$first/$rel" "$dst"
-      echo "restored $(short "$dst")"
+    from=""
+    # Backup names start with the time, so the glob lists them oldest first.
+    for d in "$BACKUPS"/*/; do
+      if [ -e "$d$rel" ] || [ -L "$d$rel" ]; then from=$d$rel; break; fi
+    done
+    if [ -n "$from" ]; then
+      mv "$from" "$dst"
+      echo "restored $(short "$dst") from $(short "${from%/"$rel"}")"
     else
       echo "removed $(short "$dst")"
     fi
   done < <(links)
-  for d in "$BACKUPS"/*/; do
-    [ -d "$d" ] && [ "${d%/}" != "$first" ] && echo "later backup kept: $(short "${d%/}")"
-  done
-  return 0
+  echo "Backups stay in $(short "$BACKUPS"). Delete them once you're sure."
 }
 
 case "${1:-}" in

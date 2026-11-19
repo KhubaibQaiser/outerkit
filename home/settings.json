@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.agent-guard/run.sh --tool claude",
+            "command": "\"$HOME/.agent-guard/run.sh\" --tool claude",
             "timeout": 10
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.agent-guard/run.sh --tool claude",
+            "command": "\"$HOME/.agent-guard/run.sh\" --tool claude",
             "timeout": 10
           }
         ]

@@ -22,7 +22,8 @@ Private. The design and every decision are in [docs/SPEC.md](docs/SPEC.md).
    ```
 
 `install` backs up anything it replaces into `~/.claude-setup-backup/<time>/`, links the managed
-files into `~/.claude` and `~/.agent-guard`, then runs `doctor`.
+files into `~/.claude` and `~/.agent-guard`, then runs `doctor`. If a tool from step 1 or 2 is
+missing, the links are still made and `install` exits non-zero with the list of what to install.
 
 ## Commands
 

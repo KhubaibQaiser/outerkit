@@ -102,6 +102,45 @@ echo "old rules" >"$HOME/.claude/CLAUDE.md"
 check "CLAUDE.md is the original file" '[ ! -L "$HOME/.claude/CLAUDE.md" ] && [ "$(cat "$HOME/.claude/CLAUDE.md")" = "old rules" ]'
 check "links with no original are removed" '[ ! -e "$HOME/.claude/settings.json" ] && [ ! -L "$HOME/.agent-guard" ]'
 
+echo "uninstall restores each path from the earliest backup that has it"
+fresh
+mkdir -p "$HOME/.claude"
+echo "old rules" >"$HOME/.claude/CLAUDE.md"
+"$S" install >/dev/null
+mkdir -p "$REPO/home/skills/new-skill" "$HOME/.claude/skills/new-skill"
+echo "repo" >"$REPO/home/skills/new-skill/SKILL.md"
+echo "mine" >"$HOME/.claude/skills/new-skill/SKILL.md"
+sleep 1
+"$S" install >/dev/null
+"$S" uninstall >/dev/null
+check "CLAUDE.md comes from the first backup" '[ "$(cat "$HOME/.claude/CLAUDE.md")" = "old rules" ]'
+check "the skill comes from the later backup" '[ "$(cat "$HOME/.claude/skills/new-skill/SKILL.md")" = "mine" ]'
+
+echo "adopt a directory keeps the repo copy if the move fails"
+fresh
+"$S" install >/dev/null
+rm "$HOME/.claude/commands"
+mkdir "$HOME/.claude/commands"
+echo "new" >"$HOME/.claude/commands/new.md"
+"$S" adopt "$HOME/.claude/commands" >/dev/null
+check "the repo directory is the adopted one" '[ -f "$REPO/home/commands/new.md" ] && [ ! -e "$REPO/home/commands/khubaib-audit.md" ]'
+check "no leftover copy in the repo" '[ ! -e "$REPO/home/commands.adopt-old" ]'
+
+echo "doctor checks every path in a hook command"
+fresh
+"$S" install >/dev/null
+jq '.hooks.PreToolUse[0].hooks[0].command = "node \"$HOME/missing.mjs\""' "$REPO/home/settings.json" >"$T/s.json" && cp "$T/s.json" "$REPO/home/settings.json"
+check "a missing script after the interpreter fails" '! "$S" doctor >/dev/null 2>&1'
+
+echo "a HOME with a space works"
+fresh
+export HOME="$T/my home"
+mkdir -p "$HOME"
+"$S" install >/dev/null
+check "doctor passes" '"$S" doctor >/dev/null'
+"$S" uninstall >/dev/null
+check "uninstall removes the links" '[ ! -L "$HOME/.claude/CLAUDE.md" ]'
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
