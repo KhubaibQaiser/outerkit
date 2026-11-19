@@ -1,0 +1,23 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  test:
+    strategy:
+      matrix:
+        # macOS runs the bash 3.2 that ships with it, Linux matches the VM and container.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: bash tests/run.sh
+      # The dependency rule has been off since 2026-11-17 (agent-guard/README.md), so its three
+      # tests fail by design. Skip only those until the rule is turned back on.
+      - run: node --test --test-skip-pattern="dependency adds|AGENT_GUARD_ALLOW_INSTALL|Claude Code output format" agent-guard/guard.test.mjs
+      - if: runner.os == 'Linux'
+        run: shellcheck setup tests/run.sh agent-guard/run.sh

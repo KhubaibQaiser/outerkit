@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+# One entry point for the setup. Design and decisions: docs/SPEC.md.
+# Written for the bash 3.2 that ships with macOS.
+set -euo pipefail
+
+REPO=$(cd "$(dirname "$0")" && pwd)
+CLAUDE="$HOME/.claude"
+BACKUPS="$HOME/.claude-setup-backup"
+TAB=$(printf '\t')
+
+die() { echo "setup: $*" >&2; exit 1; }
+short() { echo "~/${1#"$HOME"/}"; }
+
+# Prints "source<TAB>target" for every managed link.
+links() {
+  printf '%s\t%s\n' "$REPO/home/CLAUDE.md" "$CLAUDE/CLAUDE.md"
+  printf '%s\t%s\n' "$REPO/home/settings.json" "$CLAUDE/settings.json"
+  printf '%s\t%s\n' "$REPO/home/commands" "$CLAUDE/commands"
+  for s in "$REPO"/home/skills/*/; do
+    s=${s%/}
+    printf '%s\t%s\n' "$s" "$CLAUDE/skills/$(basename "$s")"
+  done
+  printf '%s\t%s\n' "$REPO/agent-guard" "$HOME/.agent-guard"
+}
+
+is_ours() { [ -L "$2" ] && [ "$(readlink "$2")" = "$1" ]; }
+
+cmd_install() {
+  local backup src dst rel
+  backup="$BACKUPS/$(date +%Y%m%d-%H%M%S)-$$"
+  mkdir -p "$CLAUDE/skills"
+  while IFS=$TAB read -r src dst; do
+    is_ours "$src" "$dst" && continue
+    if [ -e "$dst" ] || [ -L "$dst" ]; then
+      rel=${dst#"$HOME"/}
+      mkdir -p "$backup/$(dirname "$rel")"
+      mv "$dst" "$backup/$rel"
+      echo "backed up $(short "$dst") to $(short "$backup")"
+    fi
+    ln -s "$src" "$dst"
+    echo "linked $(short "$dst")"
+  done < <(links)
+  echo
+  cmd_doctor
+}
+
+problems=0
+good() { echo "  ok   $1"; }
+warn() { echo "  warn $1"; }
+problem() {
+  problems=$((problems + 1))
+  echo "  FAIL $1"
+  echo "       fix: $2"
+}
+
+check_links() {
+  local src dst
+  echo "Links"
+  while IFS=$TAB read -r src dst; do
+    if [ ! -e "$src" ]; then
+      problem "$(short "$src") is missing from the repo" "git -C $REPO status, then restore it"
+    elif is_ours "$src" "$dst"; then
+      good "$(short "$dst")"
+    elif [ -L "$dst" ]; then
+      problem "$(short "$dst") points to $(readlink "$dst")" "./setup install"
+    elif [ -e "$dst" ]; then
+      problem "$(short "$dst") is a real file, not a link" \
+        "diff -ru '$src' '$dst', then ./setup adopt '$dst' to keep it, or ./setup install to back it up and relink"
+    else
+      problem "$(short "$dst") is missing" "./setup install"
+    fi
+  done < <(links)
+}
+
+check_tools() {
+  local t major
+  echo "Tools"
+  for t in git gh jq rg gitleaks claude pnpm node; do
+    if command -v "$t" >/dev/null; then good "$t"; else problem "$t not found" "brew bundle --file $REPO/Brewfile (see README)"; fi
+  done
+  if command -v node >/dev/null; then
+    major=$(node -v | sed -E 's/^v([0-9]+).*/\1/')
+    [ "$major" = 24 ] || warn "default node is v$major, the setup expects 24: nvm alias default 24"
+  fi
+}
+
+check_settings() {
+  local f="$REPO/home/settings.json" bad cmd first
+  echo "Settings"
+  command -v jq >/dev/null || return 0 # check_tools already reported jq missing
+  if ! jq empty "$f" 2>/dev/null; then
+    problem "home/settings.json is not valid JSON" "jq . $f"
+    return 0
+  fi
+  good "home/settings.json is valid JSON"
+  # Only hook commands run in a shell, so $HOME expands nowhere else.
+  bad=$(jq -r '[paths(strings) as $p | select(getpath($p) | contains("$HOME"))
+    | select($p[0] != "hooks" or $p[-1] != "command") | $p | map(tostring) | join(".")] | .[]' "$f")
+  if [ -n "$bad" ]; then
+    problem "\$HOME used outside a hook command: $bad" "use an absolute value there, or move it into a hook command"
+  fi
+  while IFS= read -r cmd; do
+    [ -n "$cmd" ] || continue
+    first=${cmd%% *}
+    first=${first//\$HOME/$HOME}
+    if [ -x "$first" ] || command -v "$first" >/dev/null; then
+      good "hook runs $(short "$first")"
+    else
+      problem "hook command not found: $first" "check home/settings.json hooks and ./setup doctor links"
+    fi
+  done < <(jq -r '.hooks // {} | .. | .command? // empty' "$f")
+}
+
+cmd_doctor() {
+  problems=0
+  check_links
+  check_tools
+  check_settings
+  echo
+  if [ "$problems" -eq 0 ]; then
+    echo "All good."
+  else
+    echo "$problems problem(s)."
+    return 1
+  fi
+}
+
+cmd_adopt() {
+  local target=${1:-} src dst
+  [ -n "$target" ] || die "usage: ./setup adopt <path>"
+  while IFS=$TAB read -r src dst; do
+    [ "$dst" = "$target" ] || continue
+    [ -L "$dst" ] && die "$(short "$dst") is already a link"
+    [ -e "$dst" ] || die "$(short "$dst") doesn't exist"
+    rm -rf "$src"
+    mv "$dst" "$src"
+    ln -s "$src" "$dst"
+    echo "adopted $(short "$dst"). Review with git -C $REPO diff, then commit and push."
+    return 0
+  done < <(links)
+  die "$target is not a path this setup manages"
+}
+
+cmd_uninstall() {
+  local first="" d src dst rel
+  for d in "$BACKUPS"/*/; do
+    [ -d "$d" ] && { first=${d%/}; break; }
+  done
+  while IFS=$TAB read -r src dst; do
+    if ! is_ours "$src" "$dst"; then
+      [ -e "$dst" ] && echo "left $(short "$dst"), it isn't a setup link"
+      continue
+    fi
+    rm "$dst"
+    rel=${dst#"$HOME"/}
+    if [ -n "$first" ] && { [ -e "$first/$rel" ] || [ -L "$first/$rel" ]; }; then
+      mv "$first/$rel" "$dst"
+      echo "restored $(short "$dst")"
+    else
+      echo "removed $(short "$dst")"
+    fi
+  done < <(links)
+  for d in "$BACKUPS"/*/; do
+    [ -d "$d" ] && [ "${d%/}" != "$first" ] && echo "later backup kept: $(short "${d%/}")"
+  done
+  return 0
+}
+
+case "${1:-}" in
+  install) cmd_install ;;
+  doctor) cmd_doctor ;;
+  adopt) cmd_adopt "${2:-}" ;;
+  uninstall) cmd_uninstall ;;
+  *)
+    echo "usage: ./setup install|doctor|adopt <path>|uninstall" >&2
+    exit 2
+    ;;
+esac
