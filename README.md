@@ -39,11 +39,15 @@ Edits to linked files change the repo working copy. Commit and push them yoursel
 ## Tests
 
 ```bash
-bash tests/run.sh && node --test --test-skip-pattern="dependency adds|AGENT_GUARD_ALLOW_INSTALL|Claude Code output format" agent-guard/guard.test.mjs
+bash tests/run.sh && node --test agent-guard/guard.test.mjs
 ```
 
-CI runs both on Linux and macOS, plus shellcheck. The skipped guard tests cover the dependency rule,
-which is off (see `agent-guard/README.md`).
+CI runs both on Linux and macOS, plus shellcheck. While GitHub Actions is blocked on this account,
+each PR is merged on a local macOS run plus a Linux run in Docker:
+
+```bash
+docker run --rm -v "$PWD":/src:ro node:24-bookworm bash -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends jq rsync shellcheck >/dev/null && cp -r /src /w && cd /w && bash tests/run.sh && node --test agent-guard/guard.test.mjs && shellcheck setup tests/run.sh agent-guard/run.sh'
+```
 
 ## Status
 

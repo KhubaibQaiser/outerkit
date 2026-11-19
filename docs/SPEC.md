@@ -33,7 +33,8 @@ skills still needs his approval per item.
 | Concurrency | One machine at a time. A pull that can't fast-forward is skipped with a warning. |
 | Memories | Not synced. Durable rules move into skills, or into `CLAUDE.md` when they must apply every turn. Each move is approved one by one. |
 | Secrets | macOS Keychain on the host. The launch scripts run on the Mac, read the Keychain and pass values as env vars when they start a container (`docker run -e`) or open a shell in the VM. Nothing is written to an image, a VM disk or the repo. |
-| Guard | agent-guard globally (moved into this repo), harness guard per repo where `/harness:init` ran |
+| Guard | agent-guard globally (moved into this repo), harness guard per repo where `/harness:init` ran. Its dependency rule is on everywhere. `AGENT_GUARD_ALLOW_INSTALL=1` lifts it for one session. |
+| Merge gate | CI on Linux and macOS. While GitHub Actions is blocked on the account (billing), a PR merges on a local macOS run plus a Linux run in Docker, with the output in the PR. |
 | Sandbox use | Daily dev sessions and unattended runs |
 | Network in sandboxes | Strict allowlist: Anthropic, GitHub, npm, plus a per-project list |
 | Projects that need Docker | Run in the Lima VM, which has its own Docker |

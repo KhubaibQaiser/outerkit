@@ -13,8 +13,6 @@ const tool = argv.includes('--tool') ? argv[argv.indexOf('--tool') + 1] : 'curso
 // package names): a human runs them. Set AGENT_GUARD_ALLOW_INSTALL=1 in the environment of the
 // Cursor or Claude Code process to turn the deny into a confirmation.
 const POLICY = {
-  // Khubaib turned the dependency rule off on 2026-11-17; backup: guard.mjs.bak-2026-11-17.
-  checkDependencyAdds: false,
   denyDependencyAdds: process.env.AGENT_GUARD_ALLOW_INSTALL !== '1',
   denyPushToMain: true,
 };
@@ -166,7 +164,6 @@ const addedPackages = (args, subcommands, valueFlags) => {
 };
 
 const checkInstall = (cmd) => {
-  if (!POLICY.checkDependencyAdds) return undefined;
   const found = [];
   for (const m of cmd.matchAll(/\b(?:npm|pnpm|yarn|bun)\s+([^;&|\n]*)/g)) {
     found.push(...addedPackages(m[1], JS_ADD, VALUE_FLAGS));
