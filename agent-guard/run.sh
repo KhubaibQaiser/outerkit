@@ -3,6 +3,8 @@
 # (Cursor from the Dock does not load nvm). If no Node is found it allows the action and says so on
 # stderr, so a missing Node can never lock a tool up.
 dir=$(dirname "$0")
+# nvm version folders are plain names like v24.11.1, so ls is safe.
+# shellcheck disable=SC2012
 for node in "$(command -v node 2>/dev/null)" /opt/homebrew/bin/node /usr/local/bin/node \
   "$(ls -d "$HOME"/.nvm/versions/node/*/bin/node 2>/dev/null | tail -1)"; do
   [ -n "$node" ] && [ -x "$node" ] && exec "$node" "$dir/guard.mjs" "$@"

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Runs ./setup against a throwaway HOME and a throwaway copy of the repo.
+# check() evals its single-quoted condition later, so variables expand and get used there.
+# Backup folder names are plain timestamps, so ls is safe here.
+# shellcheck disable=SC2016,SC2034,SC2012
 set -euo pipefail
 
 SRC=$(cd "$(dirname "$0")/.." && pwd)

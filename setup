@@ -9,6 +9,7 @@ BACKUPS="$HOME/.claude-setup-backup"
 TAB=$(printf '\t')
 
 die() { echo "setup: $*" >&2; exit 1; }
+# shellcheck disable=SC2088 # "~/" is display text here, not a path
 short() { echo "~/${1#"$HOME"/}"; }
 
 # Prints "source<TAB>target" for every managed link.
