@@ -4,7 +4,8 @@ One private repo that makes Claude Code behave the same on every machine I use. 
 command, and the rules, skills, commands, hooks and plugins match the other machine. It also runs
 the same workflow inside a Docker dev container or a Lima VM.
 
-Status: approved by Khubaib on 2026-11-19.
+Status: plan approved by Khubaib on 2026-11-19 ("Approve, build it"). Moving memory rules into
+skills still needs his approval per item.
 
 ## Goals
 
@@ -23,15 +24,15 @@ Status: approved by Khubaib on 2026-11-19.
 
 | Topic | Decision |
 |---|---|
-| Machines | M3 Pro (arm64, user `khubaib-work`), Intel i9 2019 (x86_64, fresh, different username), Linux VMs |
-| Client | Desktop app and CLI. Plugins from the claude.ai catalog arrive through the account on both. |
+| Machines | M3 Pro (arm64, user `khubaib-work`), Intel i9 2019 (x86_64, fresh, different username), a Docker dev container and a Lima VM |
+| Client | Desktop app and CLI. Catalog plugins (superpowers, engineering, design, figma, caveman, cowork-plugin-management) are not in `settings.json`. They sync from the claude.ai account, in the CLI too: `claude plugin list` shows them as "Synced from claude.ai" on the M3. |
 | Repo | Private `KhubaibQaiser/claude-setup`, cloned to `~/claude-setup`, symlinked into `~/.claude` |
 | Third-party skills | Reinstalled from their source repos at pinned commits. No vendored copies. |
-| Versions | A lock file pins skills and plugins. `./setup update` bumps them and shows the diff. |
+| Versions | `skills.lock` pins third-party skills to a repo commit. Plugins from GitHub marketplaces are pinned in the same lock by version. Claude Code has no documented commit pin for marketplaces, so step 3 first checks whether a git ref on the marketplace source works. If it doesn't, `doctor` reports any plugin whose version differs from the lock. `./setup update` bumps the lock and shows the diff. |
 | Sync | Auto-pull at session start, fast-forward only. Pushing is manual. |
 | Concurrency | One machine at a time. A pull that can't fast-forward is skipped with a warning. |
 | Memories | Not synced. Durable rules move into skills, or into `CLAUDE.md` when they must apply every turn. Each move is approved one by one. |
-| Secrets | macOS Keychain. Launch scripts read them and pass them as env vars at run time only. |
+| Secrets | macOS Keychain on the host. The launch scripts run on the Mac, read the Keychain and pass values as env vars when they start a container (`docker run -e`) or open a shell in the VM. Nothing is written to an image, a VM disk or the repo. |
 | Guard | agent-guard globally (moved into this repo), harness guard per repo where `/harness:init` ran |
 | Sandbox use | Daily dev sessions and unattended runs |
 | Network in sandboxes | Strict allowlist: Anthropic, GitHub, npm, plus a per-project list |
@@ -55,7 +56,7 @@ Confirmed assumptions:
 | Repo path | Linked to | Notes |
 |---|---|---|
 | `home/CLAUDE.md` | `~/.claude/CLAUDE.md` | Global rules |
-| `home/settings.json` | `~/.claude/settings.json` | Hooks, plugins, marketplaces, model. Paths use `$HOME`. |
+| `home/settings.json` | `~/.claude/settings.json` | Hooks, plugins, marketplaces, model. `$HOME` appears only in hook commands, which run in a shell. Other fields don't expand variables, so `doctor` fails on `$HOME` anywhere else. |
 | `home/commands/` | `~/.claude/commands` | `khubaib-*` commands |
 | `home/skills/<name>/` | `~/.claude/skills/<name>` | My own skills, linked one by one |
 | `agent-guard/` | `~/.agent-guard` | Also used by Cursor's hooks |
@@ -71,17 +72,20 @@ memories), `sessions/`, `history.jsonl`, `cache/`, `plugins/` (installed copies)
 | Command | What it does |
 |---|---|
 | `./setup install` | Backs up anything it would replace into `~/.claude-setup-backup/<timestamp>/`, links the managed files, installs locked skills and plugins, then runs `doctor` |
+| `./setup adopt <path>` | Copies a file that replaced its link into the repo, then relinks it |
 | `./setup doctor` | Checks every link, the lock against what's installed, the hooks, the tools and the guards. Prints a fix for each problem and exits non-zero if any. |
 | `./setup update` | Moves the lock to the latest upstream commits and versions, shows the diff, installs. You commit and push. |
-| `./setup pull` | Fast-forward pull, run by the SessionStart hook |
-| `./setup uninstall` | Removes the links and restores the latest backup |
+| `./setup pull` | Fast-forward pull, then a quick link check. Run by the SessionStart hook. |
+| `./setup uninstall` | Removes the links and restores the first backup, which is the state before setup. Later backups are listed, not restored. |
 
 ## Edge cases
 
 - **Different username or folder.** Every path is `$HOME`-based. Memories aren't synced, so their
   path-keyed folders don't matter.
 - **A link replaced by a real file.** An app or tool may rewrite `settings.json` in place of the
-  link. `doctor` detects it, shows the diff against the repo and offers to copy it in and relink.
+  link, for example when `/config` saves. `./setup pull` (every session start) and `doctor` detect
+  it and show the diff against the repo. `./setup adopt <path>` copies the file into the repo and
+  relinks it.
 - **Existing files on install.** Backed up, never deleted. A second install backs up again.
 - **Third-party skills already installed by hand.** Replaced by the locked version, with a backup.
   The duplicate `ponytail` skill folder is removed because the plugin provides it.
@@ -89,18 +93,26 @@ memories), `sessions/`, `history.jsonl`, `cache/`, `plugins/` (installed copies)
   changes or unpushed commits, or when it can't fast-forward. It never merges. A pull failure never
   blocks the session.
 - **Hook changes** take effect from the next session.
+- **Trust.** Auto-pull runs code from this repo at every session start, so only I push to it.
+  Sandboxes don't auto-pull. They get the setup when the image or VM is built, and a rebuild
+  updates them. The repo-scoped token inside a sandbox never has access to this repo.
 - **Leaks.** A gitleaks pre-commit hook and a CI scan. `.gitignore` covers the never-list above.
 - **Two guards.** `doctor` checks agent-guard and the harness guard don't double-prompt or conflict.
 - **Intel Mac.** Images are multi-arch. Lima works on Intel. Tart is out because it needs Apple
   Silicon.
 - **Container.** Non-root user with UID mapping on the mounted repo. The firewall needs
-  `NET_ADMIN`. Playwright browsers are baked in. Projects mount at `/workspace/<name>`. The host's
+  `NET_ADMIN`. It resolves the allowlist domains to IPs when the container starts, and takes
+  GitHub's ranges from its meta API, so a restart refreshes them. A project adds hosts in an
+  optional `sandbox-allowlist.txt` at its root. Playwright browsers are baked in. Projects mount at `/workspace/<name>`. The host's
   `~/.claude`, `~/.ssh` and Keychain are never mounted.
 - **Unattended runs.** Permissions are skipped only inside a sandbox. Auth uses a
   `claude setup-token` token from the Keychain.
 - **Claude's own sandbox (`srt`)** is off inside containers and the VM, which are the sandbox.
-- **Lima VM.** Runs its own Docker for projects like Caseflow's local Supabase. Same firewall and
-  secret handling as the container.
+- **Lima VM.** Ubuntu LTS with `vmType: vz` on both Macs. Lima picks the native image (aarch64 on
+  the M3, x86_64 on the Intel Mac). It runs its own Docker for projects like Caseflow's local
+  Supabase, with the same firewall and per-project allowlist. Secrets arrive as env vars on each
+  shell opened from the Mac. On the 2019 Intel Mac the VM plus Docker is heavy, so give it at most
+  half the cores and memory.
 - **macOS-only hooks.** agent-guard and the statusline get Linux-safe paths.
 
 ## Build order
