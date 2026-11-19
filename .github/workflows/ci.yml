@@ -1,0 +1,21 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  test:
+    strategy:
+      matrix:
+        # macOS runs the bash 3.2 that ships with it, Linux matches the VM and container.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: bash tests/run.sh
+      - run: node --test agent-guard/guard.test.mjs
+      - if: runner.os == 'Linux'
+        run: shellcheck setup tests/run.sh agent-guard/run.sh
