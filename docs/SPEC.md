@@ -63,7 +63,7 @@ Confirmed assumptions:
 | `home/skills/<name>/` | `~/.claude/skills/<name>` | My own skills, linked one by one |
 | `agent-guard/` | `~/.agent-guard` | Also used by Cursor's hooks |
 | `skills.lock` | | Third-party skills: repo, commit, path |
-| `Brewfile` | | node 24, pnpm 10, gh, gitleaks, lima, ripgrep, jq |
+| `Brewfile` | | git, gh, jq, ripgrep, gitleaks, nvm, lima. Node 24 comes through nvm. pnpm comes through corepack, at the version each project pins in its `packageManager` field. Ruled on 2026-11-23: no kit-wide pnpm version. |
 
 Never in the repo: `~/.claude.json` (tokens and account state), `projects/` (sessions and
 memories), `sessions/`, `history.jsonl`, `cache/`, `plugins/` (installed copies), `skills/synced`
@@ -74,11 +74,11 @@ memories), `sessions/`, `history.jsonl`, `cache/`, `plugins/` (installed copies)
 | Command | What it does |
 |---|---|
 | `./setup install` | Backs up anything it would replace into `~/.claude-setup-backup/<timestamp>/`, links the managed files, installs locked skills and plugins, then runs `doctor` |
-| `./setup adopt <path>` | Copies a file that replaced its link into the repo, then relinks it |
+| `./setup adopt <path>` | Moves a file that replaced its link into the repo, then relinks it |
 | `./setup doctor` | Checks every link, the lock against what's installed, the hooks, the tools and the guards. Prints a fix for each problem and exits non-zero if any. |
 | `./setup update` | Moves the lock to the latest upstream commits and versions, shows the diff, installs. You commit and push. |
 | `./setup pull` | Fast-forward pull, then a quick link check. Run by the SessionStart hook. |
-| `./setup uninstall` | Removes the links and restores the first backup, which is the state before setup. Later backups are listed, not restored. |
+| `./setup uninstall` | Removes the links and puts back each path from the earliest backup that has it, which is its state before setup. The backups stay on disk. |
 
 ## Edge cases
 
@@ -86,7 +86,7 @@ memories), `sessions/`, `history.jsonl`, `cache/`, `plugins/` (installed copies)
   path-keyed folders don't matter.
 - **A link replaced by a real file.** An app or tool may rewrite `settings.json` in place of the
   link, for example when `/config` saves. `./setup pull` (every session start) and `doctor` detect
-  it and show the diff against the repo. `./setup adopt <path>` copies the file into the repo and
+  it and show the diff against the repo. `./setup adopt <path>` moves the file into the repo and
   relinks it.
 - **Existing files on install.** Backed up, never deleted. A second install backs up again.
 - **The old name.** The backup folder is still `~/.claude-setup-backup`. `uninstall` restores from
