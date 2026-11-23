@@ -8,13 +8,13 @@ The name joins "outer harness" and "kit". An
 around a coding agent for its own work: the instructions it reads, the checks on its work and the
 limits on what it may do. This kit is mine. The repo was `claude-setup` until 2026-11-23.
 
-Private. The design and every decision are in [docs/SPEC.md](docs/SPEC.md).
+Public. The design and every decision are in [docs/SPEC.md](docs/SPEC.md).
 
 ## New machine
 
 1. Install [Homebrew](https://brew.sh) and run the commands its installer prints under "Next
-   steps", which put `brew` on the PATH. Then install the GitHub CLI and sign in. The repo is
-   private, so the clone needs it:
+   steps", which put `brew` on the PATH. Then install the GitHub CLI and sign in, so this
+   machine can push edits back:
    ```bash
    brew install gh && gh auth login
    ```
@@ -58,8 +58,7 @@ Edits to linked files change the repo working copy. Commit and push them yoursel
 bash tests/run.sh && node --test agent-guard/guard.test.mjs
 ```
 
-CI runs both on Linux and macOS, plus shellcheck. While GitHub Actions is blocked on this account,
-each PR is merged on a local macOS run plus a Linux run in Docker:
+CI runs both on Linux and macOS, plus shellcheck on Linux. To run the Linux job locally in Docker:
 
 ```bash
 docker run --rm -v "$PWD":/src:ro node:24-bookworm bash -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends jq rsync shellcheck >/dev/null && cp -r /src /w && cd /w && bash tests/run.sh && node --test agent-guard/guard.test.mjs && shellcheck setup tests/run.sh agent-guard/run.sh'

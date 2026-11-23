@@ -1,6 +1,6 @@
 # outerkit spec
 
-One private repo that makes Claude Code behave the same on every machine I use. Clone it, run one
+One public repo that makes Claude Code behave the same on every machine I use. Clone it, run one
 command, and the rules, skills, commands, hooks and plugins match the other machine. It also runs
 the same workflow inside a Docker dev container or a Lima VM.
 
@@ -26,8 +26,8 @@ skills still needs his approval per item.
 |---|---|
 | Machines | M3 Pro (arm64, user `khubaib-work`), Intel i9 2019 (x86_64, fresh, different username), a Docker dev container and a Lima VM |
 | Client | Desktop app and CLI. Catalog plugins (superpowers, engineering, design, figma, caveman, cowork-plugin-management) are not in `settings.json`. They sync from the claude.ai account, in the CLI too: `claude plugin list` shows them as "Synced from claude.ai" on the M3. |
-| Repo | Private `KhubaibQaiser/outerkit`, cloned to `~/outerkit` on a new machine and symlinked into `~/.claude`. `setup` works from whatever folder it sits in, so the M3's clone can stay in `~/claude-setup`. |
-| Name | Ruled on 2026-11-23: this repo is my kit, my own outer harness (the instructions, checks and limits around a coding agent), and its name is outerkit. It was `claude-setup` before, and the old address redirects for as long as no new repo takes that name. It stays private until I have read its whole history. |
+| Repo | Public `KhubaibQaiser/outerkit`, cloned to `~/outerkit` on a new machine and symlinked into `~/.claude`. `setup` works from whatever folder it sits in, so the M3's clone can stay in `~/claude-setup`. |
+| Name | Ruled on 2026-11-23: this repo is my kit, my own outer harness (the instructions, checks and limits around a coding agent), and its name is outerkit. It was `claude-setup` before, and the old address redirects for as long as no new repo takes that name. It was private until 2026-11-23, when I made it public so CI can run. GitHub Actions doesn't start jobs on my private repos. |
 | Third-party skills | Reinstalled from their source repos at pinned commits. No vendored copies. |
 | Versions | `skills.lock` pins third-party skills to a repo commit. Plugins from GitHub marketplaces are pinned in the same lock by version. Claude Code has no documented commit pin for marketplaces, so step 3 first checks whether a git ref on the marketplace source works. If it doesn't, `doctor` reports any plugin whose version differs from the lock. `./setup update` bumps the lock and shows the diff. |
 | Sync | Auto-pull at session start, fast-forward only. Pushing is manual. |
@@ -35,7 +35,7 @@ skills still needs his approval per item.
 | Memories | Not synced. Durable rules move into skills, or into `CLAUDE.md` when they must apply every turn. Each move is approved one by one. |
 | Secrets | macOS Keychain on the host. The launch scripts run on the Mac, read the Keychain and pass values as env vars when they start a container (`docker run -e`) or open a shell in the VM. Nothing is written to an image, a VM disk or the repo. |
 | Guard | agent-guard globally (moved into this repo), harness guard per repo where `/harness:init` ran. Its dependency rule is on everywhere. `AGENT_GUARD_ALLOW_INSTALL=1` lifts it for one session. |
-| Merge gate | CI on Linux and macOS. While GitHub Actions is blocked on the account (billing), a PR merges on a local macOS run plus a Linux run in Docker, with the output in the PR. |
+| Merge gate | CI on Linux and macOS. Until 2026-11-23 the repo was private and GitHub Actions didn't start jobs on it, so a PR merged on a local macOS run plus a Linux run in Docker. |
 | Sandbox use | Daily dev sessions and unattended runs |
 | Network in sandboxes | Strict allowlist: Anthropic, GitHub, npm, plus a per-project list |
 | Projects that need Docker | Run in the Lima VM, which has its own Docker |
