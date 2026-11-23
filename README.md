@@ -12,8 +12,9 @@ Private. The design and every decision are in [docs/SPEC.md](docs/SPEC.md).
 
 ## New machine
 
-1. Install [Homebrew](https://brew.sh), then the GitHub CLI, and sign in. The repo is private, so
-   the clone needs it:
+1. Install [Homebrew](https://brew.sh) and run the commands its installer prints under "Next
+   steps", which put `brew` on the PATH. Then install the GitHub CLI and sign in. The repo is
+   private, so the clone needs it:
    ```bash
    brew install gh && gh auth login
    ```
@@ -26,15 +27,16 @@ Private. The design and every decision are in [docs/SPEC.md](docs/SPEC.md).
    ```bash
    nvm install 24 && nvm alias default 24 && corepack enable
    ```
-4. Install Claude Code and the desktop app, then sign in.
+4. Install [Claude Code](https://code.claude.com/docs/en/setup) and the desktop app, then sign in.
 5. Link:
    ```bash
    ~/outerkit/setup install
    ```
 
 `install` backs up anything it replaces into `~/.claude-setup-backup/<time>/`, links the managed
-files into `~/.claude` and `~/.agent-guard`, then runs `doctor`. If a tool from steps 1 to 4 is
-missing, the links are still made and `install` exits non-zero with the list of what to install.
+files into `~/.claude` and `~/.agent-guard`, then runs `doctor`. If `git`, `gh`, `jq`, `rg`,
+`gitleaks`, `claude`, `pnpm` or `node` is missing, the links are still made and `install` exits
+non-zero with the list of what to install.
 
 The backup folder keeps the repo's old name, so `uninstall` still finds backups made before the
 rename. A clone made under the old name keeps working from its old folder.
