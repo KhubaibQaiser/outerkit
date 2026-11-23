@@ -32,7 +32,7 @@ missing, the links are still made and `install` exits non-zero with the list of 
 | `./setup install` | Backs up and links the managed files, then runs `doctor` |
 | `./setup doctor` | Checks links, tools and `settings.json`. Prints a fix per problem, exits non-zero if any. |
 | `./setup adopt <path>` | When an app replaced a link with a real file, moves that file into the repo and relinks it |
-| `./setup uninstall` | Removes the links and restores the first backup |
+| `./setup uninstall` | Removes the links and puts back each original from the earliest backup that has it |
 
 Edits to linked files change the repo working copy. Commit and push them yourself.
 
