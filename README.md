@@ -1,29 +1,43 @@
-# claude-setup
+# outerkit
 
 My Claude Code setup: the same rules, skills, commands, hooks and plugins on every machine, in a
 Docker dev container and in a Lima VM.
+
+The name joins "outer harness" and "kit". An
+[outer harness](https://www.martinfowler.com/articles/harness-engineering.html) is what a team adds
+around a coding agent for its own work: the instructions it reads, the checks on its work and the
+limits on what it may do. This kit is mine. The repo was `claude-setup` until 2026-11-23.
 
 Private. The design and every decision are in [docs/SPEC.md](docs/SPEC.md).
 
 ## New machine
 
-1. Install [Homebrew](https://brew.sh), then the tools:
+1. Install [Homebrew](https://brew.sh), then the GitHub CLI, and sign in. The repo is private, so
+   the clone needs it:
    ```bash
-   brew bundle --file ~/claude-setup/Brewfile
+   brew install gh && gh auth login
    ```
-2. Node 24 and pnpm, through nvm and corepack:
+2. Clone, then install the rest of the tools:
+   ```bash
+   gh repo clone KhubaibQaiser/outerkit ~/outerkit && brew bundle --file ~/outerkit/Brewfile
+   ```
+3. Node 24 and pnpm, through nvm and corepack. nvm first needs a folder and a few lines in the
+   shell profile, which `brew info nvm` prints. Then, in a new terminal:
    ```bash
    nvm install 24 && nvm alias default 24 && corepack enable
    ```
-3. Install Claude Code and the desktop app, then sign in.
-4. Clone and link:
+4. Install Claude Code and the desktop app, then sign in.
+5. Link:
    ```bash
-   git clone https://github.com/KhubaibQaiser/claude-setup.git ~/claude-setup && ~/claude-setup/setup install
+   ~/outerkit/setup install
    ```
 
 `install` backs up anything it replaces into `~/.claude-setup-backup/<time>/`, links the managed
-files into `~/.claude` and `~/.agent-guard`, then runs `doctor`. If a tool from step 1 or 2 is
+files into `~/.claude` and `~/.agent-guard`, then runs `doctor`. If a tool from steps 1 to 4 is
 missing, the links are still made and `install` exits non-zero with the list of what to install.
+
+The backup folder keeps the repo's old name, so `uninstall` still finds backups made before the
+rename. A clone made under the old name keeps working from its old folder.
 
 ## Commands
 
