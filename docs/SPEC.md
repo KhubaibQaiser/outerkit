@@ -58,7 +58,7 @@ Confirmed assumptions:
 | Repo path | Linked to | Notes |
 |---|---|---|
 | `home/CLAUDE.md` | `~/.claude/CLAUDE.md` | Global rules |
-| `home/settings.json` | `~/.claude/settings.json` | Hooks, plugins, marketplaces, model. `$HOME` appears only in hook commands, which run in a shell. Other fields don't expand variables, so `doctor` fails on `$HOME` anywhere else. |
+| `home/settings.json` | `~/.claude/settings.json` | Hooks, permissions, plugins, marketplaces, model. `$HOME` appears only in hook commands, which run in a shell. Other fields don't expand variables, so `doctor` fails on `$HOME` anywhere else. |
 | `home/commands/` | `~/.claude/commands` | `khubaib-*` commands |
 | `home/skills/<name>/` | `~/.claude/skills/<name>` | My own skills, linked one by one |
 | `agent-guard/` | `~/.agent-guard` | Also used by Cursor's hooks |

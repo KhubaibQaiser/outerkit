@@ -2,12 +2,19 @@
 // Guard for agent tool calls. One script serves Cursor hooks (beforeShellExecution,
 // beforeReadFile) and Claude Code PreToolUse hooks. No dependencies.
 //
-// It fails OPEN on internal errors, so a bug here can never lock anyone out of their tools.
-// It is a seatbelt, not a sandbox: an agent with shell access can still edit this file.
+// It is a seatbelt, not a sandbox: it matches command text, so it catches mistakes, not a
+// determined script.
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+// What a call gets when the guard itself fails (input that is not hook JSON, or a bug here):
+// 'ask' shows the user the error and lets them decide, 'deny' blocks the call, 'allow' lets it
+// through unchecked. run.sh reads this line too, for when no Node is found.
+const ON_GUARD_ERROR = 'ask';
 
 const argv = process.argv.slice(2);
 const tool = argv.includes('--tool') ? argv[argv.indexOf('--tool') + 1] : 'cursor';
+const HOME = process.env.HOME;
 
 // Policy switches. Dependency adds are denied for agents (supply-chain risk, and hallucinated
 // package names): a human runs them. Set AGENT_GUARD_ALLOW_INSTALL=1 in the environment of the
@@ -18,11 +25,9 @@ const POLICY = {
 };
 
 const readInput = () => {
-  try {
-    return JSON.parse(readFileSync(0, 'utf8') || '{}');
-  } catch {
-    return {};
-  }
+  const input = JSON.parse(readFileSync(0, 'utf8'));
+  if (!input || typeof input !== 'object') throw new Error('hook input is not a JSON object');
+  return input;
 };
 
 const SAFE_EXAMPLE = /\.(example|sample|template|dist)$/i;
@@ -66,9 +71,10 @@ const sensitivePath = (p) => {
     .replace(/^['"]|['"]$/g, '')
     .replace(/^~(?=\/|$)/, '$HOME');
   const base = s.split('/').pop();
-  if (/^\.env(\..+)?$/.test(base)) return !SAFE_EXAMPLE.test(base);
-  if (/(^|\/)\.(ssh|gnupg)\//.test(s) && !/\.pub$/.test(base)) return true;
-  if (/(^|\/)\.aws\/(credentials|config)$/.test(s)) return true;
+  // A trailing * covers globs such as Grep's glob field.
+  if (/^\.env([.*].*)?$/.test(base)) return !SAFE_EXAMPLE.test(base);
+  // The folders themselves count, since Grep and Glob take a folder as their path.
+  if (/(^|\/)\.(ssh|gnupg|aws)(\/|$)/.test(s) && !/\.pub$/.test(base)) return true;
   if (/^id_(rsa|ed25519|ecdsa|dsa)$/.test(base)) return true;
   if (/\.(pem|p12|pfx|keystore)$/i.test(base)) return true;
   if (/^\.(netrc|pgpass)$/.test(base)) return true;
@@ -178,21 +184,60 @@ const checkInstall = (cmd) => {
     : ['ask', `${what}: confirm it exists and is intended`];
 };
 
-const decide = ({ command, paths }) => {
-  for (const p of paths) {
-    if (sensitivePath(p))
-      return ['deny', 'reading a secrets file (.env, SSH or AWS keys, PEM, Terraform state)'];
+const SECRETS = 'touching a secrets file (.env, SSH or AWS keys, PEM, Terraform state)';
+const words = (s) => s.split(/[\s'"`=<>|;&()]+/).filter(Boolean);
+const segments = (cmd) => cmd.split(/[;&|\n]+/);
+// The one exemption: writing a secrets file's name into .gitignore, as in echo .env >> .gitignore.
+const IGNORE_ENTRY = /^\s*(echo|printf)\s[^$`<>]*>>?\s*['"]?[^\s'"]*\.gitignore['"]?\s*$/;
+const touchesSecrets = (cmd) =>
+  segments(cmd).some((seg) => !IGNORE_ENTRY.test(seg) && words(seg).some(sensitivePath));
+
+// The guard and the settings that run it: agents change them only after the user says yes.
+const guardFile = (p) =>
+  /(^|\/)\.?agent-guard(\/|$)/.test(p) ||
+  /(^|\/)home\/settings\.json$/.test(p) ||
+  p === `${HOME}/.claude/settings.json`;
+const WRITERS = new Set(
+  'cp mv ln rm rmdir install rsync tee touch truncate chmod chown unlink shred dd sponge patch'
+    .split(' '),
+);
+const writes = (toks) => {
+  const names = toks.map((t) => t.split('/').pop());
+  const has = (re) => names.some((n) => re.test(n));
+  return (
+    names.some((n) => WRITERS.has(n)) ||
+    (has(/^(g?sed|perl)$/) && has(/^(-[a-zA-Z]*i|--in-place)/)) ||
+    (has(/^(node|python3?|perl|ruby|bun|deno)$/) && has(/^(-[ecp]|--eval|--print)$/)) ||
+    (names.includes('git') && has(/^(checkout|restore)$/))
+  );
+};
+const checkGuardEdit = (cmd, cwd) => {
+  let dir = cwd;
+  const at = (t) =>
+    resolve(dir, t.replace(/^['"]|['"]$/g, '').replace(/^(~|\$HOME|\$\{HOME\})(?=\/|$)/, HOME));
+  for (const seg of segments(cmd)) {
+    const toks = words(seg);
+    if (toks[0] === 'cd') {
+      dir = at(toks[1] ?? '~');
+      continue;
+    }
+    const targets = [...seg.matchAll(/>\|?\s*([^\s;&|<>()]+)/g)].map((m) => m[1]);
+    if ([...targets, ...(writes(toks) ? toks : [])].some((t) => guardFile(at(t)))) {
+      return ['ask', 'changing agent-guard or the settings that run it'];
+    }
   }
+  return undefined;
+};
+
+const decide = ({ command, paths, cwd }) => {
+  if (paths.some(sensitivePath)) return ['deny', SECRETS];
   if (!command) return ['allow'];
-  const tokens = command.split(/[\s'"`=<>|;&()]+/).filter(Boolean);
-  if (!/\.gitignore\b/.test(command) && tokens.some(sensitivePath)) {
-    return ['deny', 'touching a secrets file (.env, SSH or AWS keys, PEM, Terraform state)'];
-  }
+  if (touchesSecrets(command)) return ['deny', SECRETS];
   const early = checkRm(command) ?? checkPushToMain(command);
   if (early) return early;
   for (const [re, why] of DENY) if (re.test(command)) return ['deny', why];
-  const install = checkInstall(command);
-  if (install) return install;
+  const later = checkInstall(command) ?? checkGuardEdit(command, cwd);
+  if (later) return later;
   for (const [re, why] of ASK) if (re.test(command)) return ['ask', why];
   return ['allow'];
 };
@@ -224,10 +269,23 @@ const respond = (decision, why) => {
   );
 };
 
+// The tool_input fields that name a file, per Claude Code tool. Grep's pattern is the text it
+// searches for, not a file, so it is left out.
+const PATH_FIELDS = {
+  Read: ['file_path'],
+  Write: ['file_path'],
+  Edit: ['file_path'],
+  MultiEdit: ['file_path'],
+  NotebookEdit: ['notebook_path'],
+  Grep: ['path', 'glob'],
+  Glob: ['path', 'pattern'],
+};
+
 try {
   const input = readInput();
   let command = '';
   const paths = [];
+  const cwd = typeof input.cwd === 'string' ? input.cwd : process.cwd();
   if (tool === 'cursor') {
     if (typeof input.command === 'string') command = input.command;
     if (typeof input.file_path === 'string') paths.push(input.file_path);
@@ -239,13 +297,16 @@ try {
     if (fromCursor || input.tool_name === 'Shell') process.exit(0);
     const toolInput = input.tool_input ?? {};
     if (input.tool_name === 'Bash') command = String(toolInput.command ?? '');
-    if (input.tool_name === 'Read' || input.tool_name === 'Grep') {
-      paths.push(String(toolInput.file_path ?? toolInput.path ?? ''));
+    for (const field of PATH_FIELDS[input.tool_name] ?? []) {
+      if (typeof toolInput[field] === 'string') paths.push(toolInput[field]);
     }
   }
-  const [decision, why] = decide({ command, paths });
+  const [decision, why] = decide({ command, paths, cwd });
   respond(decision, why);
-} catch {
-  if (tool === 'cursor') process.stdout.write(JSON.stringify({ permission: 'allow' }));
+} catch (error) {
+  const cause = error instanceof Error ? error.message : String(error);
+  const why = `the guard could not check this call (${cause})`;
+  process.stderr.write(`agent-guard: ${why}\n`);
+  respond(ON_GUARD_ERROR, why);
 }
 process.exitCode = 0;

@@ -1,9 +1,19 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const guard = fileURLToPath(new URL('./guard.mjs', import.meta.url));
+const settings = JSON.parse(
+  readFileSync(fileURLToPath(new URL('../home/settings.json', import.meta.url)), 'utf8'),
+);
+// The answer a call gets when the guard fails. run.sh reads the same line.
+const ON_GUARD_ERROR = /^const ON_GUARD_ERROR = '([a-z]+)';$/m.exec(
+  readFileSync(guard, 'utf8'),
+)?.[1];
 
 const run = (tool, payload, env = {}) => {
   const result = spawnSync(process.execPath, [guard, '--tool', tool], {
@@ -14,17 +24,19 @@ const run = (tool, payload, env = {}) => {
   assert.equal(result.status, 0, 'a hook must always exit 0');
   return result.stdout ? JSON.parse(result.stdout) : null;
 };
-const shell = (command, env) =>
-  run('cursor', { command, cwd: '/p', hook_event_name: 'beforeShellExecution' }, env);
+const shell = (command, env, cwd = '/p') =>
+  run('cursor', { command, cwd, hook_event_name: 'beforeShellExecution' }, env);
 const read = (file_path) => run('cursor', { file_path, hook_event_name: 'beforeReadFile' });
-const claudeBash = (command, env) =>
+const claude = (tool_name, tool_input, env) =>
   run(
     'claude',
-    { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, session_id: 's1' },
+    { hook_event_name: 'PreToolUse', tool_name, tool_input, session_id: 's1', cwd: '/p' },
     env,
   );
+const claudeBash = (command, env) => claude('Bash', { command }, env);
 
 const decision = (result) => result.permission;
+const claudeDecision = (result) => result?.hookSpecificOutput.permissionDecision ?? 'allow';
 
 test('secrets files are denied, examples are allowed', () => {
   assert.equal(decision(shell('cat .env')), 'deny');
@@ -39,6 +51,103 @@ test('secrets files are denied, examples are allowed', () => {
   assert.equal(decision(read('/proj/certs/server.pem')), 'deny');
   assert.equal(decision(read('/proj/.env.example')), 'allow');
   assert.equal(decision(read('/proj/src/environment.ts')), 'allow');
+});
+
+test('only writing a secrets-file name into .gitignore is exempt from the secrets rule', () => {
+  for (const command of [
+    'echo ".env" >> .gitignore',
+    "printf '%s\\n' .env .env.local >> apps/api/.gitignore",
+    'echo .env >> .gitignore && git add .gitignore',
+  ]) {
+    assert.equal(decision(shell(command)), 'allow', command);
+  }
+  for (const command of [
+    'cat .env .gitignore',
+    'cat .env > .gitignore',
+    'echo .env >> .gitignore; cat .env',
+    'echo "$(cat .env)" >> .gitignore',
+    'cp .env.local apps/.gitignore',
+  ]) {
+    assert.equal(decision(shell(command)), 'deny', command);
+  }
+});
+
+test('every file tool is checked for secrets files', () => {
+  for (const [name, input] of [
+    ['Read', { file_path: '/p/.env' }],
+    ['Write', { file_path: '/p/.env', content: 'X=1' }],
+    ['Edit', { file_path: '/p/apps/api/.env.local', old_string: 'a', new_string: 'b' }],
+    ['MultiEdit', { file_path: '/p/certs/server.pem', edits: [] }],
+    ['NotebookEdit', { notebook_path: '/p/.env', new_source: 'x' }],
+    ['Grep', { pattern: 'KEY', path: '/p/.env' }],
+    ['Grep', { pattern: 'KEY', glob: '.env*' }],
+    ['Grep', { pattern: 'KEY', path: '/Users/x/.ssh' }],
+    ['Glob', { pattern: '**/.env' }],
+    ['Glob', { pattern: '*', path: '/Users/x/.aws' }],
+  ]) {
+    assert.equal(claudeDecision(claude(name, input)), 'deny', `${name} ${JSON.stringify(input)}`);
+  }
+  for (const [name, input] of [
+    ['Write', { file_path: '/p/.env.example', content: 'X=' }],
+    ['Edit', { file_path: '/p/.gitignore', old_string: 'dist', new_string: 'dist\n.env' }],
+    ['Grep', { pattern: '\\.env', path: '/p/src' }],
+    ['Glob', { pattern: '**/*.ts', path: '/p' }],
+    ['NotebookEdit', { notebook_path: '/p/analysis.ipynb', new_source: 'x' }],
+  ]) {
+    assert.equal(claudeDecision(claude(name, input)), 'allow', `${name} ${JSON.stringify(input)}`);
+  }
+});
+
+test('settings run the guard for the shell and every file tool', () => {
+  const matched = settings.hooks.PreToolUse.filter((entry) =>
+    entry.hooks.some((h) => h.command.includes('.agent-guard/run.sh')),
+  ).flatMap((entry) => entry.matcher.split('|'));
+  const tools = ['Bash', 'Read', 'Grep', 'Glob', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
+  for (const name of tools) assert.ok(matched.includes(name), `${name} is not matched`);
+});
+
+test('settings ask before a file tool changes the guard or its settings', () => {
+  for (const rule of [
+    'Edit(//**/agent-guard/**)',
+    'Edit(~/.agent-guard/**)',
+    'Edit(//**/home/settings.json)',
+    'Edit(~/.claude/settings.json)',
+  ]) {
+    assert.ok(settings.permissions?.ask?.includes(rule), `${rule} is not an ask rule`);
+  }
+});
+
+test('shell writes to the guard or its settings ask first', () => {
+  const env = { HOME: '/h' };
+  for (const command of [
+    "sed -i '' 's/deny/allow/' agent-guard/guard.mjs",
+    "perl -pi -e 's/a/b/' /r/agent-guard/run.sh",
+    "echo '{}' > home/settings.json",
+    'jq . home/settings.json > /tmp/s.json && mv /tmp/s.json home/settings.json',
+    'cp /tmp/guard.mjs ~/.agent-guard/guard.mjs',
+    'ln -sf /tmp/s.json "$HOME/.claude/settings.json"',
+    'tee -a agent-guard/README.md < notes.txt',
+    'cd agent-guard && rm guard.test.mjs',
+    `node -e "require('fs').writeFileSync('home/settings.json', '{}')"`,
+    'git checkout -- agent-guard',
+  ]) {
+    assert.equal(decision(shell(command, env)), 'ask', command);
+  }
+  assert.equal(decision(shell("sed -i '' s/a/b/ guard.mjs", env, '/r/agent-guard')), 'ask');
+  assert.equal(decision(shell('echo x > settings.json', env, '/h/.claude')), 'ask');
+  for (const command of [
+    'cat agent-guard/guard.mjs',
+    'node --test agent-guard/guard.test.mjs',
+    'shellcheck setup tests/run.sh agent-guard/run.sh',
+    'git diff home/settings.json',
+    'jq . home/settings.json',
+    'sed -n 1,20p agent-guard/guard.mjs',
+    'git add agent-guard home/settings.json',
+    'cp src/a.ts src/b.ts',
+  ]) {
+    assert.equal(decision(shell(command, env)), 'allow', command);
+  }
+  assert.equal(claudeDecision(claudeBash("sed -i '' s/a/b/ agent-guard/guard.mjs", env)), 'ask');
 });
 
 test('destructive commands', () => {
@@ -153,7 +262,39 @@ test('Claude mode stays silent for calls Cursor imported (its native hook covers
   );
 });
 
-test('fails open on garbage input', () => {
-  assert.equal(decision(run('cursor', 'not json')), 'allow');
-  assert.equal(run('claude', 'not json'), null);
+test('a guard error gets the ON_GUARD_ERROR answer and says why', () => {
+  assert.ok(['ask', 'deny', 'allow'].includes(ON_GUARD_ERROR), 'ON_GUARD_ERROR is a known answer');
+  for (const input of ['not json', '', 'null']) {
+    assert.equal(decision(run('cursor', input)), ON_GUARD_ERROR, JSON.stringify(input));
+    assert.equal(claudeDecision(run('claude', input)), ON_GUARD_ERROR, JSON.stringify(input));
+  }
+  const result = spawnSync(process.execPath, [guard, '--tool', 'claude'], {
+    input: 'not json',
+    encoding: 'utf8',
+  });
+  assert.match(result.stderr, /agent-guard: the guard could not check this call/);
+});
+
+test('run.sh gives the ON_GUARD_ERROR answer when no Node is found', (t) => {
+  // run.sh also looks in these fixed places; skip where one exists outside the paths it searches.
+  if (existsSync('/usr/bin/node') || existsSync('/bin/node')) return t.skip('a system Node exists');
+  const dir = mkdtempSync(join(tmpdir(), 'agent-guard-'));
+  copyFileSync(guard, join(dir, 'guard.mjs'));
+  const script = readFileSync(fileURLToPath(new URL('./run.sh', import.meta.url)), 'utf8');
+  writeFileSync(
+    join(dir, 'run.sh'),
+    script.replaceAll('/opt/homebrew/bin/node', '/none').replaceAll('/usr/local/bin/node', '/none'),
+  );
+  const runSh = (tool) => {
+    const result = spawnSync('/bin/sh', [join(dir, 'run.sh'), '--tool', tool], {
+      input: '{}',
+      encoding: 'utf8',
+      env: { PATH: '/usr/bin:/bin', HOME: dir },
+    });
+    assert.equal(result.status, 0, 'a hook must always exit 0');
+    assert.match(result.stderr, /no Node found/);
+    return result.stdout ? JSON.parse(result.stdout) : null;
+  };
+  assert.equal(decision(runSh('cursor')), ON_GUARD_ERROR);
+  assert.equal(claudeDecision(runSh('claude')), ON_GUARD_ERROR);
 });
