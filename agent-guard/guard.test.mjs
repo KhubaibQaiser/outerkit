@@ -150,6 +150,10 @@ test('shell writes to the guard or its settings ask first', () => {
   assert.equal(claudeDecision(claudeBash("sed -i '' s/a/b/ agent-guard/guard.mjs", env)), 'ask');
 });
 
+test('a deny anywhere in a command wins over an ask', () => {
+  assert.equal(decision(shell('rm -rf src/old && git push origin main')), 'deny');
+});
+
 test('destructive commands', () => {
   assert.equal(decision(shell('git push --force origin feature/x')), 'deny');
   assert.equal(decision(shell('git push -f')), 'deny');

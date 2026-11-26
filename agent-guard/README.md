@@ -10,7 +10,7 @@ Policy: denies touching secrets files (the one exemption is writing a name such 
 `.gitignore`), force-push, any push to main or master, `curl | sh`, `chmod 777` and adding
 dependencies; asks before destructive commands and before a shell command changes the guard or
 the settings that run it. `permissions.ask` rules in `home/settings.json` do the same for the file
-tools.
+tools. A deny anywhere in a command wins over an ask.
 When the guard itself fails (input that isn't hook JSON, a bug, no Node found), the call gets the
 answer `ON_GUARD_ERROR` sets at the top of `guard.mjs`: `ask` now, `deny` or `allow` as a
 one-line change. The reason goes to stderr.

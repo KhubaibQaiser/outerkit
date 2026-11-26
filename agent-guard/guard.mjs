@@ -233,11 +233,14 @@ const decide = ({ command, paths, cwd }) => {
   if (paths.some(sensitivePath)) return ['deny', SECRETS];
   if (!command) return ['allow'];
   if (touchesSecrets(command)) return ['deny', SECRETS];
-  const early = checkRm(command) ?? checkPushToMain(command);
-  if (early) return early;
+  // Every deny rule runs before any ask rule.
+  const rm = checkRm(command);
+  if (rm?.[0] === 'deny') return rm;
+  const push = checkPushToMain(command);
+  if (push) return push;
   for (const [re, why] of DENY) if (re.test(command)) return ['deny', why];
-  const later = checkInstall(command) ?? checkGuardEdit(command, cwd);
-  if (later) return later;
+  const early = checkInstall(command) ?? rm ?? checkGuardEdit(command, cwd);
+  if (early) return early;
   for (const [re, why] of ASK) if (re.test(command)) return ['ask', why];
   return ['allow'];
 };
