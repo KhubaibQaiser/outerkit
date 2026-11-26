@@ -36,6 +36,16 @@ contradict each other or the shipped code.
 Build what the brief or ticket asks for, to a high bar, with every edge case handled. Extras become
 "future work" in the README, not code. Propose cuts rather than making them.
 
+## Findings outside the current work become GitHub issues
+
+- A bug, issue, performance finding or tech-debt item that isn't part of the current task, sprint or
+  phase gets its own GitHub issue in that project's repo straight away. The issue gives what, where
+  (`file:line`), the evidence or repro, the impact and a suggested fix.
+- Don't park these in future specs, plans, status notes or memory. A spec may link to the issue.
+- Public repos: no secrets, PII, credentials or local paths in the issue.
+- Give Khubaib the issue link in the same turn. Whether and when to fix it stays his call.
+- If the project has no GitHub repo, or `gh` can't reach it, say so and ask where to track it.
+
 ## Cost
 
 - Subagents default to Sonnet. If a task really needs Opus, say why in one line and let him choose.
