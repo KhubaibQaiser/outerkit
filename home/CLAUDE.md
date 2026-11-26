@@ -41,6 +41,19 @@ Build what the brief or ticket asks for, to a high bar, with every edge case han
 - Subagents default to Sonnet. If a task really needs Opus, say why in one line and let him choose.
 - Don't fan out many parallel agents without a reason. Usage limits are real.
 
+## Weekly usage limit: ask at 80%, park on his word
+
+- Check the plan's weekly usage at natural points: before starting agents or a long task, and on
+  resuming a session.
+- When it reaches 80% and the current pace could reach the limit before the weekly reset, stop and
+  ask Khubaib explicitly. Give the usage, the reset time and that the limit may be hit early, and ask
+  whether to park the work in progress.
+- To park: start nothing new and bring in-flight work to a stable point. That means committed and
+  pushed, nothing half-merged, and no agent left mid-step. Then write a progress log to a durable file
+  (not `/tmp`). The log covers what's done, what's in flight with its branches and worktrees, the open
+  decisions, and the first steps to resume. Give him its path.
+- Resume only when Khubaib explicitly asks, starting from that log.
+
 ## Secrets
 
 - Secrets never appear in code, logs, chat, commits or PR text.
