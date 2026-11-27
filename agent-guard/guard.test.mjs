@@ -138,6 +138,12 @@ test('shell writes to settings files that can turn the guard off ask first', () 
     "echo '{}' > ~/.cursor/hooks.json",
     "jq '.hooks = {}' .cursor/hooks.json > /tmp/h.json && mv /tmp/h.json .cursor/hooks.json",
     'echo x > .CLAUDE/Settings.Local.JSON',
+    "echo '{}' > ~/.claude/settings.local.json",
+    `echo '{}' > "$HOME/.cursor/hooks.json"`,
+    'git checkout -- .claude/settings.json',
+    'cp -r /tmp/evil ~/.claude',
+    'mv .claude .claude.old',
+    'rsync -a /tmp/x/ .cursor/',
   ]) {
     assert.equal(decision(shell(command, env)), 'ask', command);
   }
@@ -147,6 +153,10 @@ test('shell writes to settings files that can turn the guard off ask first', () 
     'jq . ~/.cursor/hooks.json',
     "echo '{}' > .claude/launch.json",
     'cp .claude/agents/a.md .claude/agents/b.md',
+    'cp a .claude/settings.json.bak',
+    'cp a .cursor/hooks.json.bak',
+    'mkdir -p .claude',
+    'ls -la ~/.claude',
   ]) {
     assert.equal(decision(shell(command, env)), 'allow', command);
   }
