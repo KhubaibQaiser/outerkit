@@ -120,8 +120,35 @@ test('settings ask before a file tool changes the guard or its settings', () => 
     'Edit(~/.agent-guard/**)',
     'Edit(//**/home/settings.json)',
     'Edit(~/.claude/settings.json)',
+    'Edit(//**/.claude/settings.json)',
+    'Edit(//**/.claude/settings.local.json)',
+    'Edit(//**/.cursor/hooks.json)',
   ]) {
     assert.ok(settings.permissions?.ask?.includes(rule), `${rule} is not an ask rule`);
+  }
+});
+
+// A project's .claude/settings.local.json with { "disableAllHooks": true } turns every hook off,
+// the guard included. Cursor wires the guard from .cursor/hooks.json.
+test('shell writes to settings files that can turn the guard off ask first', () => {
+  const env = { HOME: '/h' };
+  for (const command of [
+    `echo '{"disableAllHooks": true}' > .claude/settings.local.json`,
+    'cp /tmp/s.json /r/app/.claude/settings.json',
+    "echo '{}' > ~/.cursor/hooks.json",
+    "jq '.hooks = {}' .cursor/hooks.json > /tmp/h.json && mv /tmp/h.json .cursor/hooks.json",
+    'echo x > .CLAUDE/Settings.Local.JSON',
+  ]) {
+    assert.equal(decision(shell(command, env)), 'ask', command);
+  }
+  assert.equal(decision(shell('echo x > settings.local.json', env, '/r/app/.claude')), 'ask');
+  for (const command of [
+    'cat .claude/settings.local.json',
+    'jq . ~/.cursor/hooks.json',
+    "echo '{}' > .claude/launch.json",
+    'cp .claude/agents/a.md .claude/agents/b.md',
+  ]) {
+    assert.equal(decision(shell(command, env)), 'allow', command);
   }
 });
 
