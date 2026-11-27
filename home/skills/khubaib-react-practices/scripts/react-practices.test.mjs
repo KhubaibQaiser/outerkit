@@ -87,12 +87,12 @@ test('isReactTarget reads the repo only when it has to', () => {
   assert.equal(isReactTarget('card.tsx', '', boom), true);
 });
 
-test('findArbitraryClasses flags bracket values, properties and variants, not scale classes', () => {
+test('findArbitraryClasses flags bracket values and properties, not scale classes', () => {
   assert.deepEqual(findArbitraryClasses('<p className="text-[11px] font-bold" />'), ['text-[11px]']);
   assert.deepEqual(findArbitraryClasses('"md:h-[190.6px]"'), ['md:h-[190.6px]']);
   assert.deepEqual(findArbitraryClasses('"[content-visibility:auto] p-2"'), ['[content-visibility:auto]']);
   assert.deepEqual(findArbitraryClasses('"grid-cols-[minmax(0,1fr)_auto]"'), ['grid-cols-[minmax(0,1fr)_auto]']);
-  assert.deepEqual(findArbitraryClasses('"min-[400px]:p-2 hover:!-mt-[2px]"'), ['min-[400px]:p-2', 'hover:!-mt-[2px]']);
+  assert.deepEqual(findArbitraryClasses('"hover:!-mt-[2px] max-md:[transform:translateY(1px)]"'), ['hover:!-mt-[2px]', 'max-md:[transform:translateY(1px)]']);
   assert.deepEqual(findArbitraryClasses('"grid gap-3 text-13 gap-y-0.75 w-1/2 bg-black/50"'), []);
 });
 
@@ -103,6 +103,12 @@ test('findArbitraryClasses ignores brackets in plain code, comments and regex li
   assert.deepEqual(findArbitraryClasses('/* old: w-[1px] */ const a = 1;'), []);
   assert.deepEqual(findArbitraryClasses('const ok = /a-[0-9]+/.test(s) && s.replace(/x-[a-z]/g, "");'), []);
   assert.deepEqual(findArbitraryClasses('const url = "https://example.com"; const c = "w-[1px]";'), ['w-[1px]']);
+});
+
+test('arbitrary variants pass, an arbitrary value after a variant still counts', () => {
+  const variants = '"data-[state=open]:border-accent aria-[current=page]:text-accent has-[[aria-invalid=true]]:border-overdue min-[400px]:p-2 [&>p]:mt-2"';
+  assert.deepEqual(findArbitraryClasses(variants), []);
+  assert.deepEqual(findArbitraryClasses('"forced-colors:text-[HighlightText] data-[state=open]:w-[1px]"'), ['forced-colors:text-[HighlightText]', 'data-[state=open]:w-[1px]']);
 });
 
 test('comment markers inside strings, and a // comment before a block comment, hide nothing', () => {
@@ -130,7 +136,7 @@ test('findMultipleComponents skips constants in capitals and counts generic arro
 test('a .ts file has no components, so PascalCase factories in a util never block', () => {
   const util = 'export const Schema = (v) => v;\nexport const Config = (p) => p;\nexport function Pick() { useMemo(() => 1, []); }\n';
   assert.deepEqual(newViolations('lib/schemas.ts', null, util), []);
-  assert.equal(newViolations('lib/schemas.tsx', null, util).length, 4, 'the same text in a .tsx is two components and a hook');
+  assert.equal(newViolations('lib/schemas.tsx', null, util).length, 3, 'the same text in a .tsx is three components; the hook passes in a file this small');
 });
 
 test('findComponentHookViolations allows plain state and use- module hooks, flags the rest', () => {
@@ -161,6 +167,29 @@ test('findComponentHookViolations catches React.useX and a hook written in the c
   assert.deepEqual(findComponentHookViolations('export function A() { React.useEffect(() => {}); }\n'), ['useEffect']);
   const local = 'function useTicker() { return 1; }\nexport function A() { const t = useTicker(); return t; }\n';
   assert.deepEqual(findComponentHookViolations(local), ['useTicker']);
+});
+
+/** A component file with `hooks` logic hook calls, padded with JSX lines to `lines` non-blank lines. */
+function component(hooks, lines) {
+  const head = ["import { useRouter, usePathname, useSearchParams } from 'next/navigation';", 'export function Nav() {'];
+  const calls = ['  const router = useRouter();', '  const path = usePathname();', '  const query = useSearchParams();'].slice(0, hooks);
+  const tail = ['  return <nav />;', '}'];
+  const pad = Array.from({ length: lines - head.length - calls.length - tail.length }, (_, i) => `  // line ${i}`);
+  return [...head, ...calls, ...pad, ...tail, ''].join('\n');
+}
+
+test('a small component may call up to two logic hooks itself', () => {
+  const hooks = (text) => newViolations('nav.tsx', null, text).filter((v) => v.rule === 'logic-hook-in-component').map((v) => v.name);
+  assert.deepEqual(hooks(component(2, 40)), [], '40 non-blank lines and two hooks is small');
+  assert.deepEqual(hooks(component(3, 40)), ['useRouter', 'usePathname', 'useSearchParams'], 'three hooks is not');
+  assert.deepEqual(hooks(component(1, 41)), ['useRouter'], '41 non-blank lines is not');
+  const blankLines = component(2, 40).replace(/\n/g, '\n\n');
+  assert.deepEqual(hooks(blankLines), [], 'blank lines do not count');
+});
+
+test('a small component that grows past the limit owns its hooks from then on', () => {
+  const added = newViolations('nav.tsx', component(2, 40), component(2, 41)).map((v) => v.name);
+  assert.deepEqual(added, ['useRouter', 'usePathname']);
 });
 
 test('newViolations reports only what a change added', () => {
