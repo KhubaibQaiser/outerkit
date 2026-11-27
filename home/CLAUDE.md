@@ -36,6 +36,22 @@ contradict each other or the shipped code.
 Build what the brief or ticket asks for, to a high bar, with every edge case handled. Extras become
 "future work" in the README, not code. Propose cuts rather than making them.
 
+## Findings outside the current work become GitHub issues
+
+- A bug, issue, performance finding or tech-debt item that isn't part of the current task, sprint or
+  phase gets tracked as its own GitHub issue in that project's repo.
+- Ask before each one. Propose it to Khubaib first: what, where (`file:line`), the evidence or repro,
+  the impact and a suggested fix. File it only after his yes, and batch proposals with the turn's other
+  questions. In a read-only mode, list the findings in the report and ask.
+- Don't park these in future specs, plans, status notes or memory. A spec may link to the issue.
+  This section is for defects and debt; feature ideas and extras stay "future work" per Scope.
+- Search the repo's issues first. If one exists, propose adding the new evidence there instead.
+- No secrets, PII, credentials or local paths in the issue, whether the repo is public or private.
+- Security holes never go in a public issue. Tell Khubaib directly and draft a private GitHub
+  security advisory for him to publish once it's fixed.
+- Give Khubaib the link once it's filed. Whether and when to fix it stays his call.
+- If the project has no GitHub repo, or `gh` can't reach it, say so and ask where to track it.
+
 ## Cost
 
 - Subagents default to Sonnet. If a task really needs Opus, say why in one line and let him choose.
