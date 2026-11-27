@@ -17,5 +17,6 @@ jobs:
           node-version: 24
       - run: bash tests/run.sh
       - run: node --test agent-guard/guard.test.mjs
+      - run: node --test home/skills/khubaib-react-practices/scripts/*.test.mjs
       - if: runner.os == 'Linux'
         run: shellcheck setup tests/run.sh agent-guard/run.sh
