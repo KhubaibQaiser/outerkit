@@ -196,10 +196,15 @@ const touchesSecrets = (cmd) =>
   segments(cmd).some((seg) => !IGNORE_ENTRY.test(seg) && words(seg).some(sensitivePath));
 
 // The guard and the settings that run it: agents change them only after the user says yes.
+// Any project's .claude/settings.local.json can set disableAllHooks, and Cursor wires the guard
+// from .cursor/hooks.json. The bare folders count too, as in cp -r x ~/.claude.
+// Case-insensitive, as macOS file names are.
 const guardFile = (p) =>
-  /(^|\/)\.?agent-guard(\/|$)/.test(p) ||
-  /(^|\/)home\/settings\.json$/.test(p) ||
-  p === `${HOME}/.claude/settings.json`;
+  /(^|\/)\.?agent-guard(\/|$)/i.test(p) ||
+  /(^|\/)home\/settings\.json$/i.test(p) ||
+  /(^|\/)\.claude\/settings(\.local)?\.json$/i.test(p) ||
+  /(^|\/)\.cursor\/hooks\.json$/i.test(p) ||
+  /(^|\/)\.(claude|cursor)\/?$/i.test(p);
 const WRITERS = new Set(
   'cp mv ln rm rmdir install rsync tee touch truncate chmod chown unlink shred dd sponge patch'
     .split(' '),

@@ -5,7 +5,10 @@
       "Edit(//**/agent-guard/**)",
       "Edit(~/.agent-guard/**)",
       "Edit(//**/home/settings.json)",
-      "Edit(~/.claude/settings.json)"
+      "Edit(~/.claude/settings.json)",
+      "Edit(//**/.claude/settings.json)",
+      "Edit(//**/.claude/settings.local.json)",
+      "Edit(//**/.cursor/hooks.json)"
     ]
   },
   "hooks": {
