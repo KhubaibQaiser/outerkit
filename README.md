@@ -55,13 +55,13 @@ Edits to linked files change the repo working copy. Commit and push them yoursel
 ## Tests
 
 ```bash
-bash tests/run.sh && node --test agent-guard/guard.test.mjs
+bash tests/run.sh && node --test agent-guard/guard.test.mjs home/skills/khubaib-react-practices/scripts/*.test.mjs
 ```
 
-CI runs both on Linux and macOS, plus shellcheck on Linux. To run the Linux job locally in Docker:
+CI runs them on Linux and macOS, plus shellcheck on Linux. To run the Linux job locally in Docker:
 
 ```bash
-docker run --rm -v "$PWD":/src:ro node:24-bookworm bash -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends jq rsync shellcheck >/dev/null && cp -r /src /w && cd /w && bash tests/run.sh && node --test agent-guard/guard.test.mjs && shellcheck setup tests/run.sh agent-guard/run.sh'
+docker run --rm -v "$PWD":/src:ro node:24-bookworm bash -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends jq rsync shellcheck >/dev/null && cp -r /src /w && cd /w && bash tests/run.sh && node --test agent-guard/guard.test.mjs home/skills/khubaib-react-practices/scripts/*.test.mjs && shellcheck setup tests/run.sh agent-guard/run.sh'
 ```
 
 ## Status

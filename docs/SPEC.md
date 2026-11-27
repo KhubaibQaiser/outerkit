@@ -97,6 +97,10 @@ memories), `sessions/`, `history.jsonl`, `cache/`, `plugins/` (installed copies)
   changes or unpushed commits, or when it can't fast-forward. It never merges. A pull failure never
   blocks the session.
 - **Hook changes** take effect from the next session.
+- **React structure hook.** `khubaib-react-practices` runs after every Edit, Write and MultiEdit.
+  It acts only in a React or Next repo, or on a `.tsx`/`.jsx` file or one that imports React or
+  Next, and skips tests, `.d.ts` and config files. It blocks only the violations the edit adds, so
+  older files with existing violations stay editable.
 - **Trust.** Auto-pull runs code from this repo at every session start, so only I push to it.
   Sandboxes don't auto-pull. They get the setup when the image or VM is built, and a rebuild
   updates them. The repo-scoped token inside a sandbox never has access to this repo.
