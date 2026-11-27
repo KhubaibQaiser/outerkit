@@ -51,8 +51,9 @@ rename. A clone made under the old name keeps working from its old folder.
 | `./setup uninstall` | Removes the links and puts back each original from the earliest backup that has it |
 
 Edits to linked files change the repo working copy. Commit and push them yourself. An agent gets a
-prompt before it changes `agent-guard/` or `home/settings.json` (see
-[agent-guard/README.md](agent-guard/README.md)).
+prompt before it changes `agent-guard/` or `home/settings.json` through the file tools or the
+common shell writers (see [agent-guard/README.md](agent-guard/README.md)). The guard is a seatbelt,
+not a sandbox: a determined command can still get past it.
 
 ## Tests
 

@@ -53,6 +53,14 @@ test('secrets files are denied, examples are allowed', () => {
   assert.equal(decision(read('/proj/src/environment.ts')), 'allow');
 });
 
+test('secrets paths match in any case, as macOS file names do', () => {
+  assert.equal(decision(read('/proj/.ENV')), 'deny');
+  assert.equal(decision(read('/proj/.Env.Local')), 'deny');
+  assert.equal(decision(shell('cat ~/.SSH/ID_RSA')), 'deny');
+  assert.equal(decision(read('/proj/certs/Server.PEM')), 'deny');
+  assert.equal(decision(read('/proj/.ENV.EXAMPLE')), 'allow');
+});
+
 test('only writing a secrets-file name into .gitignore is exempt from the secrets rule', () => {
   for (const command of [
     'echo ".env" >> .gitignore',
@@ -130,6 +138,7 @@ test('shell writes to the guard or its settings ask first', () => {
     'cd agent-guard && rm guard.test.mjs',
     `node -e "require('fs').writeFileSync('home/settings.json', '{}')"`,
     'git checkout -- agent-guard',
+    'echo x >| home/settings.json',
   ]) {
     assert.equal(decision(shell(command, env)), 'ask', command);
   }

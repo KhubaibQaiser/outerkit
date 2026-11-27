@@ -67,9 +67,11 @@ const REDIRECTION = /\d*[<>]+&?\d*\s*[^\s;&|]*/g;
 
 const sensitivePath = (p) => {
   if (!p) return false;
+  // Lower case: macOS file names are case-insensitive by default, so .ENV opens .env.
   const s = String(p)
     .replace(/^['"]|['"]$/g, '')
-    .replace(/^~(?=\/|$)/, '$HOME');
+    .replace(/^~(?=\/|$)/, '$HOME')
+    .toLowerCase();
   const base = s.split('/').pop();
   // A trailing * covers globs such as Grep's glob field.
   if (/^\.env([.*].*)?$/.test(base)) return !SAFE_EXAMPLE.test(base);
@@ -186,7 +188,8 @@ const checkInstall = (cmd) => {
 
 const SECRETS = 'touching a secrets file (.env, SSH or AWS keys, PEM, Terraform state)';
 const words = (s) => s.split(/[\s'"`=<>|;&()]+/).filter(Boolean);
-const segments = (cmd) => cmd.split(/[;&|\n]+/);
+// `>|` is a forced redirect, not a pipe: fold it to `>` before splitting on `|`.
+const segments = (cmd) => cmd.replace(/>\|/g, '>').split(/[;&|\n]+/);
 // The one exemption: writing a secrets file's name into .gitignore, as in echo .env >> .gitignore.
 const IGNORE_ENTRY = /^\s*(echo|printf)\s[^$`<>]*>>?\s*['"]?[^\s'"]*\.gitignore['"]?\s*$/;
 const touchesSecrets = (cmd) =>
