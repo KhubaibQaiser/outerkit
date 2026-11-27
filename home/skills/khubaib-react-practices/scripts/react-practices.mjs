@@ -1,59 +1,99 @@
 #!/usr/bin/env node
 // Guard for Khubaib's React and Next practices (see ../SKILL.md). No dependencies.
 //
-// It runs only where the rules apply: in a repo whose package.json depends on react or next, or
-// on a target file that is React (.tsx or .jsx, or a file that imports react or next). Anywhere
-// else it stays silent.
+// It runs only where the rules apply: in a project whose package.json depends on react or next,
+// or on a target file that is React (.tsx or .jsx, or a file that imports react or next).
+// Anywhere else it stays silent.
 //
 // Modes:
-//   --hook           Claude Code PostToolUse hook. Reads the tool call on stdin. Exits 2 with
-//                    feedback for Claude when the edit adds a violation. Pre-existing ones pass.
+//   --hook           Claude Code PostToolUse hook for Edit and Write. Reads the tool call on stdin.
+//                    Exits 2 with feedback for Claude when the call adds a violation. Violations the
+//                    file already had pass, so older files stay editable.
 //   --files <paths>  Check named files and print every violation. Exits 1 if there are any.
 import { existsSync, readFileSync } from 'node:fs';
-import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const SIMPLE_HOOKS = new Set(['useState', 'useId', 'useContext', 'useRef']);
 const TOKEN_SPLIT = /[\s'"`{};<>]+/;
-const COMPONENT_DECL =
-  /^(?:export\s+)?(?:default\s+)?(?:function\s+([A-Z]\w*)\s*\(|const\s+([A-Z]\w*)\s*(?::[^=\n]+)?=\s*(?:memo\(|forwardRef\(|\(|function\b))/gm;
+// One capital, or PascalCase with a lower-case letter, so constants such as MAX or API_URL are not components.
+const PASCAL = '[A-Z](?:[A-Za-z0-9]*[a-z][A-Za-z0-9]*)?';
+const COMPONENT_DECL = new RegExp(
+  `^(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?(?:function\\s+(${PASCAL})\\s*[<(]|const\\s+(${PASCAL})\\s*(?::[^=\\n]+)?=\\s*(?:memo\\s*(?:<[^>\\n]*>)?\\(|forwardRef\\s*(?:<[^>\\n]*>)?\\(|\\(|function\\b|async\\s*\\(|[a-z_$][\\w$]*\\s*=>))`,
+  'gm',
+);
+// A hook call: useX(...), React.useX(...) or useX<T>(...). A `function useX(` declaration is not a call.
+const HOOK_CALL = /(?<![\w.$])(?<!function\s+)(?:React\.)?(use[A-Z]\w*)\s*(?:<[^>()\n]*>)?\s*\(/g;
 
 const lineOf = (text, index) => text.slice(0, index).split('\n').length;
 
-/** Arbitrary value (`text-[11px]`), or arbitrary property or variant (`[content-visibility:auto]`). */
+/** Blank out comments with spaces, so offsets and line numbers still match the original text. */
+function stripComments(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '))
+    .replace(/(^|\s)(\/\/.*)$/gm, (_, lead, comment) => lead + ' '.repeat(comment.length));
+}
+
+/** Split a class on the colons that separate variants, ignoring colons inside brackets. */
+function segments(token) {
+  const out = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < token.length; i += 1) {
+    if (token[i] === '[') depth += 1;
+    else if (token[i] === ']') depth -= 1;
+    else if (token[i] === ':' && depth === 0) {
+      out.push(token.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(token.slice(start));
+  return out;
+}
+
+/** Arbitrary value (`text-[11px]`, `min-[400px]:`), or arbitrary property (`[content-visibility:auto]`). */
 function isArbitrary(token) {
-  if (/-\[[^\]]*\]/.test(token)) return true;
-  return /^!?\[[^\]]*:[^\]]*\]/.test(token);
+  return segments(token).some(
+    (s) => /^!?-?[a-z][a-z0-9-]*-\[[^\]]+\]/.test(s) || /^!?\[[^\]]*:[^\]]*\]!?$/.test(s),
+  );
 }
 
 export function findArbitraryClasses(text) {
-  return text.split(TOKEN_SPLIT).filter((token) => token && isArbitrary(token));
+  return stripComments(text)
+    .split(TOKEN_SPLIT)
+    .filter((token) => token && isArbitrary(token));
 }
 
 function arbitraryHits(text) {
   const hits = [];
-  text.split('\n').forEach((line, i) => {
-    for (const token of line.split(TOKEN_SPLIT)) if (token && isArbitrary(token)) hits.push({ token, line: i + 1 });
-  });
+  stripComments(text)
+    .split('\n')
+    .forEach((line, i) => {
+      for (const token of line.split(TOKEN_SPLIT)) if (token && isArbitrary(token)) hits.push({ token, line: i + 1 });
+    });
   return hits;
 }
 
 function componentHits(text) {
-  return [...text.matchAll(COMPONENT_DECL)].map((m) => ({ name: m[1] ?? m[2], line: lineOf(text, m.index) }));
+  return [...stripComments(text).matchAll(COMPONENT_DECL)].map((m) => ({ name: m[1] ?? m[2], line: lineOf(text, m.index) }));
 }
 
 export function findMultipleComponents(text) {
   return componentHits(text).map((c) => c.name);
 }
 
+/** Local names of hooks imported from a module whose file name starts with use-: named, aliased or default. */
 function importedUseNames(text) {
   const names = new Set();
-  for (const m of text.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+['"]([^'"]+)['"]/g)) {
-    const fileName = m[2].split('/').pop() ?? '';
-    if (!fileName.startsWith('use-')) continue;
-    for (const spec of m[1].split(',')) {
-      const name = spec.trim().split(/\s+as\s+/)[0].trim();
-      if (name) names.add(name);
+  for (const m of text.matchAll(/import\s+(?:type\s+)?([^'"]*?)\s+from\s+['"]([^'"]+)['"]/g)) {
+    if (!(m[2].split('/').pop() ?? '').startsWith('use-')) continue;
+    const clause = m[1];
+    const named = clause.match(/\{([^}]*)\}/);
+    const defaultName = clause.replace(/\{[^}]*\}/, '').replace(/,/g, ' ').trim();
+    if (/^[A-Za-z_$][\w$]*$/.test(defaultName)) names.add(defaultName);
+    for (const spec of named ? named[1].split(',') : []) {
+      const local = spec.trim().split(/\s+as\s+/).pop()?.trim();
+      if (local) names.add(local);
     }
   }
   return names;
@@ -62,10 +102,9 @@ function importedUseNames(text) {
 function hookHits(text) {
   const allowed = importedUseNames(text);
   const hits = [];
-  for (const m of text.matchAll(/(?<![\w.])(use[A-Z]\w*)\s*\(/g)) {
+  for (const m of stripComments(text).matchAll(HOOK_CALL)) {
     const name = m[1];
     if (SIMPLE_HOOKS.has(name) || allowed.has(name)) continue;
-    if (new RegExp(`function\\s+${name}\\s*\\(`).test(text)) continue;
     hits.push({ name, line: lineOf(text, m.index) });
   }
   return hits;
@@ -91,7 +130,7 @@ export function analyze(text) {
   return violations.sort((a, b) => a.line - b.line);
 }
 
-/** Violations in `after` that `before` did not already have. `before` null means nothing existed before. */
+/** Violations in `after` that `before` did not already have. `before` null means a new file. */
 export function newViolations(file, before, after) {
   const counts = new Map();
   if (before !== null) for (const v of analyze(before)) counts.set(v.key, (counts.get(v.key) ?? 0) + 1);
@@ -107,60 +146,63 @@ export function newViolations(file, before, after) {
 export function isReactRepo(root) {
   const pkgPath = join(root, 'package.json');
   if (existsSync(pkgPath)) {
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    let pkg;
+    try {
+      pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    } catch (error) {
+      throw new Error(`${pkgPath} is not valid JSON (${error.message})`, { cause: error });
+    }
     const deps = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.peerDependencies };
     if (deps.react || deps.next) return true;
   }
   return ['js', 'mjs', 'cjs', 'ts'].some((ext) => existsSync(join(root, `next.config.${ext}`)));
 }
 
+/** Any package.json from the file's folder up to the git root says React or Next, so monorepo roots count. */
+function inReactProject(file) {
+  for (let dir = dirname(file); ; dir = dirname(dir)) {
+    if (isReactRepo(dir)) return true;
+    if (existsSync(join(dir, '.git')) || dirname(dir) === dir) return false;
+  }
+}
+
 const SKIP_FILE = /\.(test|spec)\.[jt]sx?$|\.d\.ts$|\.config\.[cm]?[jt]s$/;
-const SOURCE_EXT = new Set(['.ts', '.tsx', '.js', '.jsx']);
+const SOURCE_FILE = /\.[jt]sx?$/;
 
+/** `repoIsReact` is a function, so package.json is read only for source files that need it. */
 export function isReactTarget(file, content, repoIsReact) {
-  if (SKIP_FILE.test(basename(file))) return false;
-  const ext = extname(file);
-  if (!SOURCE_EXT.has(ext)) return false;
-  if (ext === '.tsx' || ext === '.jsx') return true;
-  if (/from\s+['"](react|next(\/[^'"]*)?)['"]/.test(content ?? '')) return true;
-  return repoIsReact;
+  const name = basename(file);
+  if (SKIP_FILE.test(name) || !SOURCE_FILE.test(name)) return false;
+  if (/\.[jt]sx$/.test(name)) return true;
+  if (/from\s+['"](react|next(\/[^'"]*)?)['"]/.test(content)) return true;
+  return repoIsReact();
 }
 
-function findRepoRoot(file) {
-  let dir = dirname(file);
-  while (true) {
-    if (existsSync(join(dir, 'package.json')) || existsSync(join(dir, '.git'))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return dirname(file);
-    dir = parent;
-  }
+/** The path as the session sees it: relative to its folder when inside it, absolute otherwise. */
+function shown(abs, cwd) {
+  const rel = relative(cwd, abs);
+  return rel.startsWith('..') || isAbsolute(rel) ? abs : rel;
 }
 
-/** Undo the edits on the current text, so the file as it was before the tool call can be compared. */
-function reverseEdits(after, edits) {
-  let text = after;
-  for (const e of [...edits].reverse()) {
-    if (!e.new_string) return null;
-    const at = text.indexOf(e.new_string);
-    if (at === -1 || text.indexOf(e.new_string, at + 1) !== -1) return null;
-    text = text.slice(0, at) + e.old_string + text.slice(at + e.new_string.length);
-  }
-  return text;
-}
-
-/** Check a file for a Claude Code tool call. Returns whether the rules apply and what the call added. */
+/** Check an Edit or Write call. Returns whether the rules apply and what the call added. */
 export function checkHookInput(input) {
+  if (typeof input !== 'object' || input === null) throw new Error('the hook input is not a JSON object');
+  if (input.tool_name !== 'Edit' && input.tool_name !== 'Write') return { applies: false, violations: [] };
   const path = input.tool_input?.file_path;
-  if (!path) return { applies: false, violations: [] };
+  if (typeof path !== 'string' || path === '') throw new Error(`${input.tool_name} call has no file_path`);
   const abs = isAbsolute(path) ? path : resolve(input.cwd ?? process.cwd(), path);
-  if (!existsSync(abs)) return { applies: false, violations: [] };
+  const name = basename(abs);
+  if (SKIP_FILE.test(name) || !SOURCE_FILE.test(name)) return { applies: false, violations: [] };
   const after = readFileSync(abs, 'utf8');
-  const root = findRepoRoot(abs);
-  if (!isReactTarget(abs, after, isReactRepo(root))) return { applies: false, violations: [] };
-  let before = null;
-  if (input.tool_name === 'Edit') before = reverseEdits(after, [input.tool_input]);
-  if (input.tool_name === 'MultiEdit') before = reverseEdits(after, input.tool_input.edits ?? []);
-  const violations = newViolations(abs, before, after).map((v) => ({ ...v, file: relative(root, abs) }));
+  if (!isReactTarget(abs, after, () => inReactProject(abs))) return { applies: false, violations: [] };
+  // Claude Code sends the file as it was before the call: a string, or null for a new file.
+  const response = input.tool_response;
+  if (typeof response !== 'object' || response === null || !('originalFile' in response)) {
+    throw new Error(`${input.tool_name} result has no tool_response.originalFile, so old and new violations cannot be told apart. Update Claude Code.`);
+  }
+  const before = response.originalFile;
+  if (before !== null && typeof before !== 'string') throw new Error('tool_response.originalFile is neither text nor null');
+  const violations = newViolations(shown(abs, input.cwd ?? process.cwd()), before, after);
   return { applies: true, violations };
 }
 
@@ -189,8 +231,7 @@ async function main(argv) {
     try {
       input = JSON.parse(await readStdin());
     } catch (error) {
-      console.error(`khubaib-react-practices: could not read the tool call (${error.message}).`);
-      return 1;
+      throw new Error(`could not read the tool call on stdin (${error.message})`, { cause: error });
     }
     const result = checkHookInput(input);
     if (result.violations.length === 0) return 0;
@@ -202,11 +243,10 @@ async function main(argv) {
     for (const f of argv.slice(1)) {
       const abs = resolve(f);
       const text = readFileSync(abs, 'utf8');
-      const root = findRepoRoot(abs);
-      if (!isReactTarget(abs, text, isReactRepo(root))) continue;
+      if (!isReactTarget(abs, text, () => inReactProject(abs))) continue;
       for (const v of analyze(text)) {
         found += 1;
-        console.log(describe({ ...v, file: relative(root, abs) }));
+        console.log(describe({ ...v, file: shown(abs, process.cwd()) }));
       }
     }
     if (found) console.log(GUIDANCE);
@@ -217,5 +257,12 @@ async function main(argv) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  process.exitCode = await main(process.argv.slice(2));
+  try {
+    process.exitCode = await main(process.argv.slice(2));
+  } catch (error) {
+    // Exit 1, not 2: Claude Code shows exit 1 to the user without blocking the edit, while exit 2
+    // would hand a guard failure to Claude as if it were a rule violation.
+    console.error(`khubaib-react-practices: ${error.message}`);
+    process.exitCode = 1;
+  }
 }
