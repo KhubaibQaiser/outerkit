@@ -1,4 +1,5 @@
 {
+  "model": "sonnet",
   "hooks": {
     "PreToolUse": [
       {
@@ -39,7 +40,8 @@
     "ponytail@ponytail": true,
     "postman@claude-plugins-official": true,
     "brag@brag": true,
-    "impeccable@impeccable": true
+    "impeccable@impeccable": true,
+    "ui-ux-pro-max@ui-ux-pro-max-skill": true
   },
   "extraKnownMarketplaces": {
     "ponytail": {
@@ -59,9 +61,14 @@
         "source": "github",
         "repo": "pbakaus/impeccable"
       }
+    },
+    "ui-ux-pro-max-skill": {
+      "source": {
+        "source": "github",
+        "repo": "nextlevelbuilder/ui-ux-pro-max-skill"
+      }
     }
   },
   "theme": "auto",
-  "agentPushNotifEnabled": true,
-  "model": "sonnet"
+  "agentPushNotifEnabled": true
 }
