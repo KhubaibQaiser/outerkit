@@ -1,5 +1,13 @@
 {
   "model": "sonnet",
+  "permissions": {
+    "ask": [
+      "Edit(//**/agent-guard/**)",
+      "Edit(~/.agent-guard/**)",
+      "Edit(//**/home/settings.json)",
+      "Edit(~/.claude/settings.json)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -13,7 +21,7 @@
         ]
       },
       {
-        "matcher": "Read",
+        "matcher": "Read|Grep|Glob|Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
