@@ -111,6 +111,14 @@ test('arbitrary variants pass, an arbitrary value after a variant still counts',
   assert.deepEqual(findArbitraryClasses('"forced-colors:text-[HighlightText] data-[state=open]:w-[1px]"'), ['forced-colors:text-[HighlightText]', 'data-[state=open]:w-[1px]']);
 });
 
+test('a child-selector variant keeps the class whole, so the utility after it is still checked', () => {
+  assert.deepEqual(findArbitraryClasses('<div className="[&>svg]:text-[11px] [&>*]:p-[3px] [&>svg]:[transform:none] [&>p]:mt-2">'), [
+    '[&>svg]:text-[11px]',
+    '[&>*]:p-[3px]',
+    '[&>svg]:[transform:none]',
+  ]);
+});
+
 test('comment markers inside strings, and a // comment before a block comment, hide nothing', () => {
   const doc = '// see src/*.ts\nexport function P() { return <p className="gap-[3px]" />; }\n/** doc */\n';
   assert.deepEqual(findArbitraryClasses(doc), ['gap-[3px]']);
