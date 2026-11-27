@@ -9,8 +9,11 @@ In Claude Code it checks the shell (`Bash`) and every file tool: `Read`, `Grep`,
 Policy: denies touching secrets files (the one exemption is writing a name such as `.env` into
 `.gitignore`), force-push, any push to main or master, `curl | sh`, `chmod 777` and adding
 dependencies; asks before destructive commands and before a shell command changes the guard or
-the settings that run it. `permissions.ask` rules in `home/settings.json` do the same for the file
-tools. A deny anywhere in a command wins over an ask (Khubaib's call, 2026-11-28).
+the settings that run it. Those are `agent-guard/`, `home/settings.json`, any `.claude/settings.json`
+or `.claude/settings.local.json` (a project's copy can set `disableAllHooks`, which turns every hook
+off) and `.cursor/hooks.json`. `permissions.ask` rules in `home/settings.json` do the same for the
+file tools. Cursor runs no hook before its own file edits, so in Cursor only shell writes are
+checked. A deny anywhere in a command wins over an ask (Khubaib's call, 2026-11-28).
 When the guard itself fails (input that isn't hook JSON, a bug, no Node found), the call gets the
 answer `ON_GUARD_ERROR` sets at the top of `guard.mjs`: `ask`, Khubaib's call on 2026-11-28, because
 it is neither silent nor a lockout. `deny` or `allow` is a one-line change. The reason goes to stderr.
