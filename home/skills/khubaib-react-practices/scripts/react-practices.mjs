@@ -18,7 +18,10 @@ const SIMPLE_HOOKS = new Set(['useState', 'useId', 'useContext', 'useRef']);
 // A component this small may call a couple of logic hooks itself (ruled by Khubaib, 2026-11-27).
 const SMALL_COMPONENT_LINES = 40;
 const SMALL_COMPONENT_HOOKS = 2;
-const TOKEN_SPLIT = /[\s'"`{};<>]+/;
+// A class-like token: runs of non-separator characters, where a bracket group stays whole, so
+// `[&>svg]:text-[11px]` is one token even though `>` separates JSX tags.
+const CLASS_TOKEN = /(?:\[[^\]\s'"`]*\]|[^\s'"`{};<>[])+/g;
+const tokensOf = (text) => text.match(CLASS_TOKEN) ?? [];
 // One capital, or PascalCase with a lower-case letter, so constants such as MAX or API_URL are not components.
 const PASCAL = '[A-Z](?:[A-Za-z0-9]*[a-z][A-Za-z0-9]*)?';
 const COMPONENT_DECL = new RegExp(
@@ -91,9 +94,7 @@ function isArbitrary(token) {
 }
 
 export function findArbitraryClasses(text) {
-  return stripComments(text)
-    .split(TOKEN_SPLIT)
-    .filter((token) => token && isArbitrary(token));
+  return tokensOf(stripComments(text)).filter(isArbitrary);
 }
 
 function arbitraryHits(text) {
@@ -101,7 +102,7 @@ function arbitraryHits(text) {
   stripComments(text)
     .split('\n')
     .forEach((line, i) => {
-      for (const token of line.split(TOKEN_SPLIT)) if (token && isArbitrary(token)) hits.push({ token, line: i + 1 });
+      for (const token of tokensOf(line)) if (isArbitrary(token)) hits.push({ token, line: i + 1 });
     });
   return hits;
 }

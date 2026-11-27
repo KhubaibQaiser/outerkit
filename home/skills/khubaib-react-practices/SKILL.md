@@ -70,4 +70,4 @@ node ~/.claude/skills/khubaib-react-practices/scripts/react-practices.mjs --file
 - "Small" counts the whole file's non-blank lines, comments included. An edit that takes a small file past 40 lines, or adds a third hook, makes all its hook calls count as new.
 - Components are counted in `.tsx`, `.jsx` and `.js` files. A `.ts` file can't hold JSX, so it never has a component.
 - An unnamed default export (`export default () => ...`) is not counted as a component.
-- A repo can run the same three rules in its own lint, as Caseflow does with `scripts/check-frontend-structure.mjs`. Keep the two in step when a rule changes.
+- A repo can run the same three rules in its own lint, as Caseflow does with `scripts/check-frontend-structure.mjs`. Its class tokens and hook counting match this guard. Its component detection is simpler. Keep the two in step when a rule changes.
