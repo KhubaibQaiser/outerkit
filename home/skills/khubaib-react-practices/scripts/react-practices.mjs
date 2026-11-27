@@ -15,7 +15,13 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { pathToFileURL } from 'node:url';
 
 const SIMPLE_HOOKS = new Set(['useState', 'useId', 'useContext', 'useRef']);
-const TOKEN_SPLIT = /[\s'"`{};<>]+/;
+// A component this small may call a couple of logic hooks itself (ruled by Khubaib, 2026-11-27).
+const SMALL_COMPONENT_LINES = 40;
+const SMALL_COMPONENT_HOOKS = 2;
+// A class-like token: runs of non-separator characters, where a bracket group stays whole, so
+// `[&>svg]:text-[11px]` is one token even though `>` separates JSX tags.
+const CLASS_TOKEN = /(?:\[[^\]\s'"`]*\]|[^\s'"`{};<>[])+/g;
+const tokensOf = (text) => text.match(CLASS_TOKEN) ?? [];
 // One capital, or PascalCase with a lower-case letter, so constants such as MAX or API_URL are not components.
 const PASCAL = '[A-Z](?:[A-Za-z0-9]*[a-z][A-Za-z0-9]*)?';
 const COMPONENT_DECL = new RegExp(
@@ -78,17 +84,17 @@ function segments(token) {
   return out;
 }
 
-/** Arbitrary value (`text-[11px]`, `min-[400px]:`), or arbitrary property (`[content-visibility:auto]`). */
+/**
+ * Arbitrary value (`text-[11px]`) or arbitrary property (`[content-visibility:auto]`) in the utility,
+ * the part after the last variant. Arbitrary variants such as `data-[state=open]:` pass.
+ */
 function isArbitrary(token) {
-  return segments(token).some(
-    (s) => /^!?-?[a-z][a-z0-9-]*-\[[^\]]+\]/.test(s) || /^!?\[[^\]]*:[^\]]*\]!?$/.test(s),
-  );
+  const utility = segments(token).pop() ?? '';
+  return /^!?-?[a-z][a-z0-9-]*-\[[^\]]+\]/.test(utility) || /^!?\[[^\]]*:[^\]]*\]!?$/.test(utility);
 }
 
 export function findArbitraryClasses(text) {
-  return stripComments(text)
-    .split(TOKEN_SPLIT)
-    .filter((token) => token && isArbitrary(token));
+  return tokensOf(stripComments(text)).filter(isArbitrary);
 }
 
 function arbitraryHits(text) {
@@ -96,7 +102,7 @@ function arbitraryHits(text) {
   stripComments(text)
     .split('\n')
     .forEach((line, i) => {
-      for (const token of line.split(TOKEN_SPLIT)) if (token && isArbitrary(token)) hits.push({ token, line: i + 1 });
+      for (const token of tokensOf(line)) if (isArbitrary(token)) hits.push({ token, line: i + 1 });
     });
   return hits;
 }
@@ -151,8 +157,11 @@ export function analyze(text, file = '') {
   if (components.length > 1) {
     for (const c of components) violations.push({ rule: 'one-component-per-file', key: `component:${c.name}`, name: c.name, line: c.line });
   }
-  if (components.length > 0) {
-    for (const h of hookHits(text)) violations.push({ rule: 'logic-hook-in-component', key: `hook:${h.name}`, name: h.name, line: h.line });
+  const hooks = components.length > 0 ? hookHits(text) : [];
+  const nonBlankLines = text.split('\n').filter((line) => line.trim() !== '').length;
+  const small = nonBlankLines <= SMALL_COMPONENT_LINES && hooks.length <= SMALL_COMPONENT_HOOKS;
+  if (!small) {
+    for (const h of hooks) violations.push({ rule: 'logic-hook-in-component', key: `hook:${h.name}`, name: h.name, line: h.line });
   }
   return violations.sort((a, b) => a.line - b.line);
 }
@@ -236,8 +245,8 @@ export function checkHookInput(input) {
 const GUIDANCE = [
   'Fix these before you go on (khubaib-react-practices):',
   '- One React component per file, named after the component. Split the others out.',
-  '- A component file holds UI only. Move logic and effects into a use-*.ts hook. Plain state (useState, useId, useContext, useRef) can stay.',
-  '- Tailwind: native classes and the theme scale only. No arbitrary values such as text-[11px]. Use a scale step or a token.',
+  '- A component file holds UI only. Move logic and effects into a use-*.ts hook. Plain state (useState, useId, useContext, useRef) can stay, and a component of 40 non-blank lines or fewer may call up to two logic hooks itself.',
+  '- Tailwind: native classes and the theme scale only. No arbitrary values such as text-[11px]. Use a scale step or a token. Arbitrary variants such as data-[state=open]: are fine.',
 ].join('\n');
 
 function describe(v) {
