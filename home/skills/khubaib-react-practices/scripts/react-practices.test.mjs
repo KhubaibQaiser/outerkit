@@ -1,9 +1,9 @@
 // Tests for the React practices guard. Run: node --test home/skills/khubaib-react-practices/scripts/
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -105,6 +105,13 @@ test('findArbitraryClasses ignores brackets in plain code, comments and regex li
   assert.deepEqual(findArbitraryClasses('const url = "https://example.com"; const c = "w-[1px]";'), ['w-[1px]']);
 });
 
+test('comment markers inside strings, and a // comment before a block comment, hide nothing', () => {
+  const doc = '// see src/*.ts\nexport function P() { return <p className="gap-[3px]" />; }\n/** doc */\n';
+  assert.deepEqual(findArbitraryClasses(doc), ['gap-[3px]']);
+  assert.deepEqual(findArbitraryClasses('const a = "x /* "; const c = "w-[1px]"; /* h-[2px] */'), ['w-[1px]']);
+  assert.deepEqual(findArbitraryClasses("<p>Don't</p>\nconst c = 'w-[1px]'; // h-[2px]\n"), ['w-[1px]']);
+});
+
 test('findMultipleComponents counts top-level components of every common shape', () => {
   assert.deepEqual(findMultipleComponents('export function A() {}\nfunction B() {}\n'), ['A', 'B']);
   assert.deepEqual(findMultipleComponents('export function A(p) { return helper(p); }\nfunction helper(n) { return n; }\n'), ['A']);
@@ -115,8 +122,15 @@ test('findMultipleComponents counts top-level components of every common shape',
   assert.deepEqual(findMultipleComponents('export const Page = async () => null;\n'), ['Page']);
 });
 
-test('findMultipleComponents skips constants in capitals', () => {
+test('findMultipleComponents skips constants in capitals and counts generic arrows', () => {
   assert.deepEqual(findMultipleComponents('export const MAX = (1 + 2) * 3;\nexport const API_URL = (x) => x;\n'), []);
+  assert.deepEqual(findMultipleComponents('export const List = <T,>(p: Props<T>) => null;\n'), ['List']);
+});
+
+test('a .ts file has no components, so PascalCase factories in a util never block', () => {
+  const util = 'export const Schema = (v) => v;\nexport const Config = (p) => p;\nexport function Pick() { useMemo(() => 1, []); }\n';
+  assert.deepEqual(newViolations('lib/schemas.ts', null, util), []);
+  assert.equal(newViolations('lib/schemas.tsx', null, util).length, 4, 'the same text in a .tsx is two components and a hook');
 });
 
 test('findComponentHookViolations allows plain state and use- module hooks, flags the rest', () => {
@@ -247,4 +261,23 @@ test('--files prints every violation in a react file and exits 1', () => {
   assert.match(run.stdout, /a\.tsx:2 tailwind-arbitrary: w-\[1px\]/);
   const clean = tempRepo({ 'package.json': REACT_PKG, 'b.tsx': 'export function B() { return <p className="p-2" />; }\n' });
   assert.equal(spawnSync(process.execPath, [script, '--files', join(clean, 'b.tsx')], { encoding: 'utf8' }).status, 0);
+});
+
+test('the hook runs when its folder is reached through a symlink, as setup installs it', () => {
+  const text = 'export function A() { return <p className="text-[11px]" />; }\n';
+  const root = tempRepo({ 'package.json': REACT_PKG, 'a.tsx': text });
+  const linked = join(mkdtempSync(join(tmpdir(), 'rp-link-')), 'scripts');
+  symlinkSync(dirname(script), linked);
+  const run = spawnSync(process.execPath, [join(linked, 'react-practices.mjs'), '--hook'], {
+    input: JSON.stringify(writeCall(root, 'a.tsx', text, null)),
+    encoding: 'utf8',
+  });
+  assert.equal(run.status, 2);
+  assert.match(run.stderr, /a\.tsx:1 tailwind-arbitrary: text-\[11px\]/);
+});
+
+test('a file in a folder whose name starts with two dots is still shown relative to the session', () => {
+  const text = 'export function A() { return <p className="w-[1px]" />; }\n';
+  const root = tempRepo({ 'package.json': REACT_PKG, '..notes/a.tsx': text });
+  assert.deepEqual(checkHookInput(writeCall(root, '..notes/a.tsx', text, null)).violations.map((v) => v.file), ['..notes/a.tsx']);
 });

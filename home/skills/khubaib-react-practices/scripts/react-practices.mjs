@@ -10,8 +10,8 @@
 //                    Exits 2 with feedback for Claude when the call adds a violation. Violations the
 //                    file already had pass, so older files stay editable.
 //   --files <paths>  Check named files and print every violation. Exits 1 if there are any.
-import { existsSync, readFileSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const SIMPLE_HOOKS = new Set(['useState', 'useId', 'useContext', 'useRef']);
@@ -19,7 +19,7 @@ const TOKEN_SPLIT = /[\s'"`{};<>]+/;
 // One capital, or PascalCase with a lower-case letter, so constants such as MAX or API_URL are not components.
 const PASCAL = '[A-Z](?:[A-Za-z0-9]*[a-z][A-Za-z0-9]*)?';
 const COMPONENT_DECL = new RegExp(
-  `^(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?(?:function\\s+(${PASCAL})\\s*[<(]|const\\s+(${PASCAL})\\s*(?::[^=\\n]+)?=\\s*(?:memo\\s*(?:<[^>\\n]*>)?\\(|forwardRef\\s*(?:<[^>\\n]*>)?\\(|\\(|function\\b|async\\s*\\(|[a-z_$][\\w$]*\\s*=>))`,
+  `^(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?(?:function\\s+(${PASCAL})\\s*[<(]|const\\s+(${PASCAL})\\s*(?::[^=\\n]+)?=\\s*(?:memo\\s*(?:<[^>\\n]*>)?\\(|forwardRef\\s*(?:<[^>\\n]*>)?\\(|<[^>\\n]*>\\s*\\(|\\(|function\\b|async\\s*\\(|[a-z_$][\\w$]*\\s*=>))`,
   'gm',
 );
 // A hook call: useX(...), React.useX(...) or useX<T>(...). A `function useX(` declaration is not a call.
@@ -27,11 +27,38 @@ const HOOK_CALL = /(?<![\w.$])(?<!function\s+)(?:React\.)?(use[A-Z]\w*)\s*(?:<[^
 
 const lineOf = (text, index) => text.slice(0, index).split('\n').length;
 
-/** Blank out comments with spaces, so offsets and line numbers still match the original text. */
+/**
+ * Blank out comments with spaces, so offsets and line numbers still match the original text.
+ * Quotes are tracked so `//` and `/*` inside strings stay. A ' or " string ends at the line break,
+ * so an apostrophe in JSX text can't swallow the rest of the file.
+ */
 function stripComments(text) {
-  return text
-    .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '))
-    .replace(/(^|\s)(\/\/.*)$/gm, (_, lead, comment) => lead + ' '.repeat(comment.length));
+  let out = '';
+  let quote = null;
+  for (let i = 0; i < text.length; ) {
+    const c = text[i];
+    const next = text[i + 1];
+    if (quote) {
+      if (c === '\\') {
+        out += text.slice(i, i + 2);
+        i += 2;
+        continue;
+      }
+      if (c === quote || (c === '\n' && quote !== '`')) quote = null;
+      out += c;
+      i += 1;
+    } else if (c === '/' && (next === '/' || next === '*')) {
+      const close = next === '/' ? text.indexOf('\n', i) : text.indexOf('*/', i + 2);
+      const stop = close === -1 ? text.length : next === '/' ? close : close + 2;
+      out += text.slice(i, stop).replace(/[^\n]/g, ' ');
+      i = stop;
+    } else {
+      if (c === '"' || c === "'" || c === '`') quote = c;
+      out += c;
+      i += 1;
+    }
+  }
+  return out;
 }
 
 /** Split a class on the colons that separate variants, ignoring colons inside brackets. */
@@ -114,13 +141,13 @@ export function findComponentHookViolations(text) {
   return hookHits(text).map((h) => h.name);
 }
 
-/** Every violation in one file's text, with its line. */
-export function analyze(text) {
+/** Every violation in one file's text, with its line. A .ts file can't hold JSX, so it has no components. */
+export function analyze(text, file = '') {
   const violations = [];
   for (const h of arbitraryHits(text)) {
     violations.push({ rule: 'tailwind-arbitrary', key: `tailwind:${h.token}`, token: h.token, line: h.line });
   }
-  const components = componentHits(text);
+  const components = /\.ts$/.test(file) ? [] : componentHits(text);
   if (components.length > 1) {
     for (const c of components) violations.push({ rule: 'one-component-per-file', key: `component:${c.name}`, name: c.name, line: c.line });
   }
@@ -133,9 +160,9 @@ export function analyze(text) {
 /** Violations in `after` that `before` did not already have. `before` null means a new file. */
 export function newViolations(file, before, after) {
   const counts = new Map();
-  if (before !== null) for (const v of analyze(before)) counts.set(v.key, (counts.get(v.key) ?? 0) + 1);
+  if (before !== null) for (const v of analyze(before, file)) counts.set(v.key, (counts.get(v.key) ?? 0) + 1);
   const added = [];
-  for (const v of analyze(after)) {
+  for (const v of analyze(after, file)) {
     const left = counts.get(v.key) ?? 0;
     if (left > 0) counts.set(v.key, left - 1);
     else added.push({ ...v, file });
@@ -181,7 +208,7 @@ export function isReactTarget(file, content, repoIsReact) {
 /** The path as the session sees it: relative to its folder when inside it, absolute otherwise. */
 function shown(abs, cwd) {
   const rel = relative(cwd, abs);
-  return rel.startsWith('..') || isAbsolute(rel) ? abs : rel;
+  return rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel) ? abs : rel;
 }
 
 /** Check an Edit or Write call. Returns whether the rules apply and what the call added. */
@@ -244,7 +271,7 @@ async function main(argv) {
       const abs = resolve(f);
       const text = readFileSync(abs, 'utf8');
       if (!isReactTarget(abs, text, () => inReactProject(abs))) continue;
-      for (const v of analyze(text)) {
+      for (const v of analyze(text, abs)) {
         found += 1;
         console.log(describe({ ...v, file: shown(abs, process.cwd()) }));
       }
@@ -256,7 +283,9 @@ async function main(argv) {
   return 1;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+// Compare real paths: setup links the skill folder into ~/.claude, and Node resolves the symlink in
+// import.meta.url but not in argv[1].
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   try {
     process.exitCode = await main(process.argv.slice(2));
   } catch (error) {

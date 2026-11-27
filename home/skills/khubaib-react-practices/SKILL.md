@@ -65,6 +65,8 @@ node ~/.claude/skills/khubaib-react-practices/scripts/react-practices.mjs --file
 ## Limits
 
 - The guard checks structure, not design. Use `fe-quality-bar` for states, accessibility and visual checks.
-- It reads text with patterns, not a parser. It skips comments and regex literals, but a bracket value in a plain string (`"a-[0-9]"`) still counts. Arbitrary variants such as `data-[state=open]:` count as arbitrary.
+- It reads text with patterns, not a parser. It skips comments. Bracket text that isn't shaped like a class (`items[0]`, a regex literal such as `/a-[0-9]/`) is ignored, but a bracket value in a plain string (`"a-[0-9]"`) still counts, and so does a tight tuple type such as `[k:string]`. Arbitrary variants such as `data-[state=open]:` count as arbitrary.
+- Rule 2 is strict: any hook other than the four plain-state ones, or one imported from a `use-*` module, counts as logic. That includes `useMemo`, `useCallback`, `useTransition` and Next's `useRouter`, `usePathname` and `useSearchParams`. Wrap them in the feature's `use-*.ts` hook.
+- Components are counted in `.tsx`, `.jsx` and `.js` files. A `.ts` file can't hold JSX, so it never has a component.
 - An unnamed default export (`export default () => ...`) is not counted as a component.
 - A repo can run the same three rules in its own lint, as Caseflow does with `scripts/check-frontend-structure.mjs`. Keep the two in step when a rule changes.
