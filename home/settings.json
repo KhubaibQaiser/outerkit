@@ -21,6 +21,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$HOME/.claude/skills/khubaib-react-practices/scripts/react-practices.mjs\" --hook",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "enabledPlugins": {
